@@ -70,33 +70,4 @@ class SettingsController {
     _store.saveSoundsOn(soundsOn.value);
   }
 
-  /// Asynchronously loads values from the injected persistence store.
-  Future<void> _loadStateFromPersistence() async {
-    final loadedValues = await Future.wait([
-      _store.getAudioOn(defaultValue: true).then((value) {
-        if (kIsWeb) {
-          // On the web, sound can only start after user interaction, so
-          // we start muted there on every game start.
-          return audioOn.value = false;
-        }
-        // On other platforms, we can use the persisted value.
-        return audioOn.value = value;
-      }),
-      _store
-          .getSoundsOn(defaultValue: true)
-          .then((value) => soundsOn.value = value),
-      _store
-          .getMusicOn(defaultValue: true)
-          .then((value) => musicOn.value = value),
-       _store.getPlayerName().then((value) {
-        if (value.isEmpty) {
-          playerName.value = "";
-        } else {
-          playerName.value = value;
-        }
-      }),
-    ]);
-
-    _log.fine(() => 'Loaded settings: $loadedValues');
-  }
 }

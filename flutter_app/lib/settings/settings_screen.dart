@@ -1,16 +1,10 @@
-// Copyright 2022, the Flutter project authors. Please see the AUTHORS file
-// for details. All rights reserved. Use of this source code is governed by a
-// BSD-style license that can be found in the LICENSE file.
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../player_progress/player_progress.dart';
 import '../style/my_button.dart';
 import '../style/palette.dart';
 import '../style/responsive_screen.dart';
-import 'custom_name_dialog.dart';
 import 'settings.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -58,19 +52,6 @@ class SettingsScreen extends StatelessWidget {
                 onSelected: settings.toggleMusicOn,
               ),
             ),
-            _SettingsLine(
-              'Reset progress',
-              const Icon(Icons.delete),
-              onSelected: () {
-                context.read<PlayerProgress>().reset();
-
-                final messenger = ScaffoldMessenger.of(context);
-                messenger.showSnackBar(
-                  const SnackBar(
-                      content: Text('Player progress has been reset.')),
-                );
-              },
-            ),
             _gap,
           ],
         ),
@@ -96,7 +77,7 @@ class _NameChangeLine extends StatelessWidget {
 
     return InkResponse(
       highlightShape: BoxShape.rectangle,
-      onTap: () => showCustomNameDialog(context),
+      onTap: () => _showEditNameDialog(context, settings),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Row(
@@ -110,11 +91,15 @@ class _NameChangeLine extends StatelessWidget {
             const Spacer(),
             ValueListenableBuilder(
               valueListenable: settings.playerName,
-              builder: (context, name, child) => Text(
-                '‘$name’',
-                style: const TextStyle(
-                  fontFamily: 'Permanent Marker',
-                  fontSize: 30,
+              builder: (context, name, child) => InkWell(
+                onTap: () => _showEditNameDialog(context, settings),
+                child: Text(
+                  '‘$name’',
+                  style: const TextStyle(
+                    fontFamily: 'Permanent Marker',
+                    fontSize: 30,
+                    decoration: TextDecoration.underline, // Show it's tappable
+                  ),
                 ),
               ),
             ),
@@ -123,13 +108,42 @@ class _NameChangeLine extends StatelessWidget {
       ),
     );
   }
+
+  void _showEditNameDialog(BuildContext context, SettingsController settings) {
+    TextEditingController nameController =
+        TextEditingController(text: settings.playerName.value);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit Your Name"),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              hintText: "Enter your name",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty) {
+                  settings.setPlayerName(nameController.text);
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _SettingsLine extends StatelessWidget {
   final String title;
-
   final Widget icon;
-
   final VoidCallback? onSelected;
 
   const _SettingsLine(this.title, this.icon, {this.onSelected});
