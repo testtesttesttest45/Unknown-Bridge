@@ -1,7 +1,3 @@
-// Copyright 2022, the Flutter project authors. Please see the AUTHORS file
-// for details. All rights reserved. Use of this source code is governed by a
-// BSD-style license that can be found in the LICENSE file.
-
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
@@ -27,7 +23,7 @@ class SettingsController {
   ValueNotifier<bool> audioOn = ValueNotifier(true);
 
   /// The player's name. Used for things like high score lists.
-  ValueNotifier<String> playerName = ValueNotifier('Player');
+  ValueNotifier<String> playerName = ValueNotifier('');
 
   /// Whether or not the sound effects (sfx) are on.
   ValueNotifier<bool> soundsOn = ValueNotifier(true);
@@ -41,9 +37,18 @@ class SettingsController {
   /// (i.e. NSUserDefaults on iOS, SharedPreferences on Android or
   /// local storage on the web).
   SettingsController({SettingsPersistence? store})
-      : _store = store ?? LocalStorageSettingsPersistence() {
-    _loadStateFromPersistence();
+      : _store = store ?? LocalStorageSettingsPersistence();
+
+  /// Load settings from storage
+    Future<void> loadSettings() async {
+    playerName.value = await _store.getPlayerName();
+    audioOn.value = await _store.getAudioOn(defaultValue: true);
+    soundsOn.value = await _store.getSoundsOn(defaultValue: true);
+    musicOn.value = await _store.getMusicOn(defaultValue: true);
+
+    _log.fine(() => 'Loaded settings: Player: ${playerName.value}, Audio: ${audioOn.value}, Sounds: ${soundsOn.value}, Music: ${musicOn.value}');
   }
+
 
   void setPlayerName(String name) {
     playerName.value = name;
@@ -83,7 +88,13 @@ class SettingsController {
       _store
           .getMusicOn(defaultValue: true)
           .then((value) => musicOn.value = value),
-      _store.getPlayerName().then((value) => playerName.value = value),
+       _store.getPlayerName().then((value) {
+        if (value.isEmpty) {
+          playerName.value = "";
+        } else {
+          playerName.value = value;
+        }
+      }),
     ]);
 
     _log.fine(() => 'Loaded settings: $loadedValues');

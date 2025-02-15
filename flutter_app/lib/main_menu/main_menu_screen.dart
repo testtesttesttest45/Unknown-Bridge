@@ -1,11 +1,6 @@
-// Copyright 2022, the Flutter project authors. Please see the AUTHORS file
-// for details. All rights reserved. Use of this source code is governed by a
-// BSD-style license that can be found in the LICENSE file.
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
 import '../audio/audio_controller.dart';
 import '../audio/sounds.dart';
 import '../settings/settings.dart';
@@ -13,13 +8,67 @@ import '../style/my_button.dart';
 import '../style/palette.dart';
 import '../style/responsive_screen.dart';
 
-class MainMenuScreen extends StatelessWidget {
+class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
+
+  @override
+  MainMenuScreenState createState() => MainMenuScreenState();
+}
+
+class MainMenuScreenState extends State<MainMenuScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _checkForPlayerName();  // Ensure settings are loaded first
+    });
+  }
+
+    Future<void> _checkForPlayerName() async {
+    final settingsController = context.read<SettingsController>();
+    await settingsController.loadSettings();  // Load settings first
+
+    if (settingsController.playerName.value.isEmpty) { // Ensure name is truly empty
+      _showNameDialog();
+    }
+  }
+
+
+  void _showNameDialog() {
+    final settingsController = context.read<SettingsController>();
+    TextEditingController nameController = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("What is your name?"),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              hintText: "Enter your name",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty) {
+                  settingsController.setPlayerName(nameController.text);
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.watch<Palette>();
-    final settingsController = context.watch<SettingsController>();
     final audioController = context.watch<AudioController>();
 
     return Scaffold(
@@ -29,7 +78,7 @@ class MainMenuScreen extends StatelessWidget {
           child: Transform.rotate(
             angle: -0.1,
             child: const Text(
-              'Flutter Game Template!',
+              'Unknown Bridge',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Permanent Marker',
@@ -53,19 +102,6 @@ class MainMenuScreen extends StatelessWidget {
             MyButton(
               onPressed: () => GoRouter.of(context).push('/settings'),
               child: const Text('Settings'),
-            ),
-            _gap,
-            Padding(
-              padding: const EdgeInsets.only(top: 32),
-              child: ValueListenableBuilder<bool>(
-                valueListenable: settingsController.audioOn,
-                builder: (context, audioOn, child) {
-                  return IconButton(
-                    onPressed: settingsController.toggleAudioOn,
-                    icon: Icon(audioOn ? Icons.volume_up : Icons.volume_off),
-                  );
-                },
-              ),
             ),
             _gap,
             const Text('Music by Mr Smith'),
