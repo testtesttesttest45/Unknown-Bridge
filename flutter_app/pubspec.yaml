@@ -1,5 +1,5 @@
-name: basic
-description: A basic game built in Flutter.
+name: unknown_bridge
+description: A 2-in-1 multiplayer card game.
 
 # Prevent accidental publishing to pub.dev.
 publish_to: 'none'
@@ -33,6 +33,7 @@ flutter:
     - assets/images/
     - assets/music/
     - assets/sfx/
+    - assets/background-image.png
 
   fonts:
     - family: Permanent Marker
@@ -42,6 +43,9 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icons/icon.png"
+  image_path: "assets/AppIcons/playstore.png"
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/icons/icon-adaptive-foreground.png"
+  adaptive_icon_foreground: "assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png"
+
+  ios_assets_folder: "AppIcons/Assets.xcassets/AppIcon.appiconset"
+
