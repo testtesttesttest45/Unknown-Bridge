@@ -64,7 +64,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                 border: Border.all(color: palette.pen, width: 3),
                 boxShadow: [
                   BoxShadow(
-                    color: palette.pen.withValues(alpha: 100),
+                    color: palette.pen.withValues(alpha: 0.8),
                     blurRadius: 10,
                     spreadRadius: 3,
                   ),
@@ -184,11 +184,11 @@ Widget build(BuildContext context) {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
-                      color: palette.ink.withValues(alpha: 0.5),
+                      color: palette.ink.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Transform.rotate(
-                      angle: 0.05, // Rotate back to keep text readable
+                      angle: 0.1, // Rotate back to keep text readable
                       child: const Text(
                         'Unknown Bridge',
                         textAlign: TextAlign.center,
@@ -213,7 +213,15 @@ Widget build(BuildContext context) {
                   audioController.playSfx(SfxType.buttonTap);
                   GoRouter.of(context).go('/play');
                 },
-                child: const Text('Play'),
+                child: const Text('Create Party'),
+              ),
+              _gap,
+              MyButton(
+                onPressed: () {
+                  audioController.playSfx(SfxType.buttonTap);
+                  _showJoinPartyDialog();
+                },
+                child: const Text('Join Party'),
               ),
               _gap,
               MyButton(
@@ -231,7 +239,126 @@ Widget build(BuildContext context) {
   );
 }
 
-  static const _gap = SizedBox(height: 10);
+static const _gap = SizedBox(height: 10);
+
+// 🎮 Lobby Dialog for "Join Party"
+void _showJoinPartyDialog() {
+  final palette = context.read<Palette>(); // Get the color palette
+  TextEditingController partyCodeController = TextEditingController();
+
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: false,
+    transitionDuration: const Duration(milliseconds: 300),
+    transitionBuilder: (context, anim1, anim2, child) {
+      return ScaleTransition(
+        scale: CurvedAnimation(parent: anim1, curve: Curves.easeInOut),
+        child: child,
+      );
+    },
+    pageBuilder: (context, anim1, anim2) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: palette.background4, // Different color from name dialog
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: palette.redPen, width: 3), // Red border for contrast
+              boxShadow: [
+                BoxShadow(
+                  color: palette.redPen.withValues(alpha: 0.8), // Darker red
+                  blurRadius: 10,
+                  spreadRadius: 3,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Enter Party Code",
+                  style: TextStyle(
+                    fontFamily: 'Permanent Marker',
+                    fontSize: 24,
+                    color: palette.ink, // Text color from palette
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: partyCodeController,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: palette.inkFullOpacity,
+                    fontSize: 18,
+                  ),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: palette.backgroundMain, // Light background
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: palette.redPen),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        if (partyCodeController.text.isNotEmpty) {
+                          GoRouter.of(context).go('/play'); // Simulate joining for now
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      style: TextButton.styleFrom(
+                        backgroundColor: palette.redPen, // Red button for contrast
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                      ),
+                      child: Text(
+                        "OK",
+                        style: TextStyle(
+                          fontFamily: 'Permanent Marker',
+                          fontSize: 20,
+                          color: palette.trueWhite, // White text
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        backgroundColor: palette.darkPen, // Darker button color
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Permanent Marker',
+                          fontSize: 20,
+                          color: palette.trueWhite,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 }
 
 // 🎨 Custom Painter for Playing Cards in the Background

@@ -137,7 +137,7 @@ class _NameChangeLine extends StatelessWidget {
               border: Border.all(color: palette.pen, width: 3),
               boxShadow: [
                 BoxShadow(
-                  color: palette.pen.withValues(alpha: 100), // Darker pen color
+                  color: palette.pen.withValues(alpha: 0.8), // Slightly transparent
                   blurRadius: 10,
                   spreadRadius: 3,
                 ),
