@@ -110,35 +110,116 @@ class _NameChangeLine extends StatelessWidget {
   }
 
   void _showEditNameDialog(BuildContext context, SettingsController settings) {
-    TextEditingController nameController =
-        TextEditingController(text: settings.playerName.value);
+  final palette = context.read<Palette>(); // Get the color palette
+  TextEditingController nameController =
+      TextEditingController(text: settings.playerName.value);
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Edit Your Name"),
-          content: TextField(
-            controller: nameController,
-            decoration: const InputDecoration(
-              hintText: "Enter your name",
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: false,
+    transitionDuration: const Duration(milliseconds: 300),
+    transitionBuilder: (context, anim1, anim2, child) {
+      return ScaleTransition(
+        scale: CurvedAnimation(parent: anim1, curve: Curves.easeInOut),
+        child: child,
+      );
+    },
+    pageBuilder: (context, anim1, anim2) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: palette.backgroundSettings, // Use settings background color
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: palette.pen, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  color: palette.pen.withValues(alpha: 100), // Darker pen color
+                  blurRadius: 10,
+                  spreadRadius: 3,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Enter Your Name",
+                  style: TextStyle(
+                    fontFamily: 'Permanent Marker',
+                    fontSize: 24,
+                    color: palette.ink, // Use ink color
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: nameController,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: palette.inkFullOpacity, fontSize: 18),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: palette.backgroundMain, // Light background
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: palette.pen),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        if (nameController.text.isNotEmpty) {
+                          settings.setPlayerName(nameController.text);
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      style: TextButton.styleFrom(
+                        backgroundColor: palette.pen, // Primary button color
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                      ),
+                      child: Text(
+                        "OK",
+                        style: TextStyle(
+                          fontFamily: 'Permanent Marker',
+                          fontSize: 20,
+                          color: palette.trueWhite, // White text
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        backgroundColor: palette.darkPen, // Darker button color
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                      ),
+                      child: Text(
+                        "Cancel",
+                        style: TextStyle(
+                          fontFamily: 'Permanent Marker',
+                          fontSize: 20,
+                          color: palette.trueWhite,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty) {
-                  settings.setPlayerName(nameController.text);
-                  Navigator.of(context).pop();
-                }
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
+
 }
 
 class _SettingsLine extends StatelessWidget {
