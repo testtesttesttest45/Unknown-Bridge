@@ -22,11 +22,16 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   List<String> players = [];
   String lobbyCode = "----";
   io.Socket? socket; // Socket for multiplayer
+  String? storedPlayerName;
 
   @override
   void initState() {
     super.initState();
-    _initializeLobby(); // Populate lobby with current player
+
+    // ✅ Store player name when the widget is first initialized
+    final settingsController = context.read<SettingsController>();
+    storedPlayerName = settingsController.playerName.value;
+
     _connectToSocket();
   }
 
@@ -37,8 +42,8 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
       socket?.emit('delete_party', {'lobbyCode': lobbyCode});
       socket?.disconnect();
     }
-    socket = null; // Reset for safety
 
+    socket = null; // Reset the socket instance
     super.dispose();
   }
 
@@ -73,23 +78,46 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
     // ✅ Assign `newSocket` before setting listeners
     socket = newSocket;
 
-    // ✅ Use `?.` to prevent accessing socket before it's ready
     socket?.onConnect((_) {
       print("🎉 Connected to backend");
 
-      final settingsController = context.read<SettingsController>();
-      final playerName = settingsController.playerName.value;
+      if (storedPlayerName != null) {
+        socket?.emit('create_party', {
+          'playerName': storedPlayerName, // ✅ Use stored name
+        });
 
-      socket?.emit('create_party', {
-        'playerName': playerName, // Send player name to server
-      });
+        // ✅ Add self to the local player list, but only if mounted
+        if (mounted) {
+          setState(() {
+            players = [storedPlayerName!]; // Add only self initially
+          });
+        }
+      }
     });
 
     socket?.on('party_created', (data) {
       print("🎊 Received party code: ${data['lobbyCode']}");
+
+      // ✅ Ensure the widget is still mounted before updating state
       if (mounted) {
         setState(() {
           lobbyCode = data['lobbyCode'];
+        });
+      }
+    });
+
+    // 🔥 Listen for real-time lobby updates (Players + Game Mode)
+    socket?.on('lobby_updated', (data) {
+      print("📢 Host received lobby update: ${data}");
+
+      // ✅ Ensure the widget is still mounted before updating state
+      if (mounted) {
+        setState(() {
+          players = List<String>.from(
+            data['players'],
+          ); // ✅ Sync players from server
+          selectedGame =
+              data['gameMode'] ?? "Unknown"; // Ensure it's never null
         });
       }
     });
