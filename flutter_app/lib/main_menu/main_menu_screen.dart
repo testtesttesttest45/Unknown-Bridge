@@ -258,7 +258,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                 MyButton(
                   onPressed: () {
                     audioController.playSfx(SfxType.buttonTap);
-                    GoRouter.of(context).go('/play');
+                    GoRouter.of(context).go('/create-party');
                   },
                   child: const Text('Create Party'),
                 ),
