@@ -47,13 +47,6 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
     super.dispose();
   }
 
-  void _initializeLobby() {
-    final settingsController = context.read<SettingsController>();
-    setState(() {
-      players.add(settingsController.playerName.value); // Add self to lobby
-    });
-  }
-
   void _connectToSocket() {
     print("🛠 Resetting socket before navigating to Create Party...");
 
@@ -119,6 +112,8 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
           selectedGame =
               data['gameMode'] ?? "Unknown"; // Ensure it's never null
         });
+
+        print("✅ Players list updated on host screen: $players");
       }
     });
 
@@ -268,9 +263,22 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
 
     return GestureDetector(
       onTap: () {
-        setState(() {
-          selectedGame = gameName;
-        });
+        if (selectedGame != gameName) {
+          setState(() {
+            selectedGame = gameName;
+          });
+
+          // 🔥 Emit game mode change to the server
+          if (socket != null && socket!.connected) {
+            print(
+              "📢 Emitting change_game_mode: $gameName for lobby $lobbyCode",
+            );
+            socket?.emit('change_game_mode', {
+              'lobbyCode': lobbyCode,
+              'gameMode': gameName,
+            });
+          }
+        }
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300), // Smooth transition

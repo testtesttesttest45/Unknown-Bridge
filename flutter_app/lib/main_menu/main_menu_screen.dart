@@ -285,7 +285,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
 
   // 🎮 Lobby Dialog for "Join Party"
   void _showJoinPartyDialog() {
-    final palette = context.read<Palette>(); // Get the color palette
+    final palette = context.read<Palette>();
     TextEditingController partyCodeController = TextEditingController();
 
     showGeneralDialog(
@@ -306,15 +306,12 @@ class MainMenuScreenState extends State<MainMenuScreen> {
               width: 320,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: palette.background4, // Different color from name dialog
+                color: palette.background4,
                 borderRadius: BorderRadius.circular(15),
-                border: Border.all(
-                  color: palette.redPen,
-                  width: 3,
-                ), // Red border for contrast
+                border: Border.all(color: palette.redPen, width: 3),
                 boxShadow: [
                   BoxShadow(
-                    color: palette.redPen.withValues(alpha: 0.8), // Darker red
+                    color: palette.redPen.withOpacity(0.8),
                     blurRadius: 10,
                     spreadRadius: 3,
                   ),
@@ -328,7 +325,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                     style: TextStyle(
                       fontFamily: 'Permanent Marker',
                       fontSize: 24,
-                      color: palette.ink, // Text color from palette
+                      color: palette.ink,
                     ),
                   ),
                   const SizedBox(height: 15),
@@ -341,7 +338,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                     ),
                     decoration: InputDecoration(
                       filled: true,
-                      fillColor: palette.backgroundMain, // Light background
+                      fillColor: palette.backgroundMain,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(color: palette.redPen),
@@ -357,13 +354,12 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                           if (partyCodeController.text.isNotEmpty) {
                             GoRouter.of(
                               context,
-                            ).go('/play'); // Simulate joining for now
+                            ).go('/join-party/${partyCodeController.text}');
                             Navigator.of(context).pop();
                           }
                         },
                         style: TextButton.styleFrom(
-                          backgroundColor:
-                              palette.redPen, // Red button for contrast
+                          backgroundColor: palette.redPen,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 10,
@@ -374,15 +370,14 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                           style: TextStyle(
                             fontFamily: 'Permanent Marker',
                             fontSize: 20,
-                            color: palette.trueWhite, // White text
+                            color: palette.trueWhite,
                           ),
                         ),
                       ),
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(),
                         style: TextButton.styleFrom(
-                          backgroundColor:
-                              palette.darkPen, // Darker button color
+                          backgroundColor: palette.darkPen,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 10,

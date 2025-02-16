@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import 'game_internals/score.dart';
 import 'level_selection/create_party_screen.dart';
+import 'level_selection/join_party_screen.dart';
 import 'level_selection/levels.dart';
 import 'main_menu/main_menu_screen.dart';
 import 'play_session/play_session_screen.dart';
@@ -33,6 +34,18 @@ final router = GoRouter(
                 child: const CreatePartyScreen(),
               ),
         ),
+        GoRoute(
+          path: 'join-party/:lobbyCode',
+          pageBuilder: (context, state) {
+            final lobbyCode = state.pathParameters['lobbyCode']!;
+            return buildMyTransition<void>(
+              key: ValueKey('join_party_$lobbyCode'),
+              color: context.watch<Palette>().backgroundLevelSelection,
+              child: JoinPartyScreen(lobbyCode: lobbyCode),
+            );
+          },
+        ),
+
         // GoRoute(
         //   path: 'play',
         //   pageBuilder:
@@ -87,7 +100,6 @@ final router = GoRouter(
         //     ),
         //   ],
         // ),
-        
         GoRoute(
           path: 'settings',
           builder:
