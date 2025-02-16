@@ -8,6 +8,7 @@ import '../style/my_button.dart';
 import '../style/palette.dart';
 import '../style/responsive_screen.dart';
 import 'dart:math';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class CreatePartyScreen extends StatefulWidget {
   const CreatePartyScreen({super.key});
@@ -19,11 +20,23 @@ class CreatePartyScreen extends StatefulWidget {
 class _CreatePartyScreenState extends State<CreatePartyScreen> {
   String selectedGame = "Unknown"; // Default game selection
   List<String> players = []; // Player list (for now, only self)
+  String lobbyCode = "----"; // Placeholder lobby code
+  late io.Socket socket; // Socket for multiplayer
 
   @override
   void initState() {
     super.initState();
     _initializeLobby(); // Populate lobby with current player
+    _connectToSocket();
+  }
+
+  @override
+  void dispose() {
+    if (socket.connected) {
+      socket.emit('delete_party', {'lobbyCode': lobbyCode}); // Notify backend
+      socket.disconnect();
+    }
+    super.dispose();
   }
 
   void _initializeLobby() {
@@ -31,6 +44,47 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
     setState(() {
       players.add(settingsController.playerName.value); // Add self to lobby
     });
+  }
+
+  void _connectToSocket() {
+    socket = io.io(
+      'http://localhost:3000', // Update if running backend on a different host
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setReconnectionAttempts(5) // Allow up to 5 reconnection attempts
+          .setReconnectionDelay(2000) // Wait 2s before reconnecting
+          .build(),
+    );
+
+    socket.onConnect((_) {
+      print("Connected to backend 🎉");
+
+      // Always request a new party when screen loads
+      socket.emit('create_party');
+    });
+
+    socket.on('party_created', (data) {
+      print("Received party code: ${data['lobbyCode']}");
+
+      if (mounted) {
+        setState(() {
+          lobbyCode = data['lobbyCode']; // Update UI
+        });
+      }
+    });
+
+    socket.onConnectError((err) {
+      print("Socket connection error: $err");
+    });
+
+    socket.onDisconnect((_) {
+      print("Disconnected from backend ❌");
+    });
+
+    // Ensure we connect (in case the socket was disconnected)
+    if (!socket.connected) {
+      socket.connect();
+    }
   }
 
   @override
@@ -88,9 +142,9 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
                   ),
                   const SizedBox(height: 10),
 
-                  // 🏷️ Placeholder Lobby Code
+                  // 🏷️ Dynamic Lobby Code
                   Text(
-                    'Lobby Code: 1234',
+                    'Lobby Code: $lobbyCode', // 🔥 Dynamic lobby code
                     style: TextStyle(
                       fontFamily: 'Permanent Marker',
                       fontSize: 24,
@@ -126,12 +180,13 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
 
                   // 🚀 Start Button (Disabled until 4 players join)
                   MyButton(
-                    onPressed: players.length < 4
-                        ? null // Disabled if players < 4
-                        : () {
-                            audioController.playSfx(SfxType.buttonTap);
-                            GoRouter.of(context).go('/play'); // Go to game
-                          },
+                    onPressed:
+                        players.length < 4
+                            ? null // Disabled if players < 4
+                            : () {
+                              audioController.playSfx(SfxType.buttonTap);
+                              GoRouter.of(context).go('/play'); // Go to game
+                            },
                     child: const Text('Start'),
                   ),
                 ],
@@ -143,6 +198,12 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
         // 🔙 Back Button
         rectangularMenuArea: MyButton(
           onPressed: () {
+            if (socket.connected) {
+              socket.emit('delete_party', {
+                'lobbyCode': lobbyCode,
+              }); // 🔥 Delete the party
+            }
+            socket.disconnect(); // Now disconnect
             GoRouter.of(context).go('/');
           },
           child: const Text('Back'),
@@ -216,9 +277,10 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       decoration: BoxDecoration(
         border: Border(
-          bottom: index == 3
-              ? BorderSide.none
-              : BorderSide(color: palette.ink, width: 1),
+          bottom:
+              index == 3
+                  ? BorderSide.none
+                  : BorderSide(color: palette.ink, width: 1),
         ),
       ),
       child: Row(
