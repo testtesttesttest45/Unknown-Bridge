@@ -18,10 +18,10 @@ class CreatePartyScreen extends StatefulWidget {
 }
 
 class _CreatePartyScreenState extends State<CreatePartyScreen> {
-  String selectedGame = "Unknown"; // Default game selection
-  List<String> players = []; // Player list (for now, only self)
-  String lobbyCode = "----"; // Placeholder lobby code
-  late io.Socket socket; // Socket for multiplayer
+  String selectedGame = "Unknown";
+  List<String> players = [];
+  String lobbyCode = "----";
+  io.Socket? socket; // Socket for multiplayer
 
   @override
   void initState() {
@@ -32,10 +32,13 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
 
   @override
   void dispose() {
-    if (socket.connected) {
-      socket.emit('delete_party', {'lobbyCode': lobbyCode}); // Notify backend
-      socket.disconnect();
+    if (socket != null && socket!.connected) {
+      print("📢 Emitting delete_party before disconnecting...");
+      socket?.emit('delete_party', {'lobbyCode': lobbyCode});
+      socket?.disconnect();
     }
+    socket = null; // Reset for safety
+
     super.dispose();
   }
 
@@ -47,44 +50,60 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   }
 
   void _connectToSocket() {
-    socket = io.io(
-      'http://localhost:3000', // Update if running backend on a different host
+    print("🛠 Resetting socket before navigating to Create Party...");
+
+    // Ensure previous socket instance is safely disconnected before reinitializing
+    if (socket != null) {
+      if (socket!.connected) {
+        socket!.disconnect();
+      }
+      socket = null; // Reset before creating a new instance
+    }
+
+    // ✅ Safely initialize socket instance
+    final newSocket = io.io(
+      'http://localhost:3000', // Change to actual server URL if needed
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setReconnectionAttempts(5) // Allow up to 5 reconnection attempts
-          .setReconnectionDelay(2000) // Wait 2s before reconnecting
+          .setReconnectionAttempts(5)
+          .setReconnectionDelay(2000)
           .build(),
     );
 
-    socket.onConnect((_) {
-      print("Connected to backend 🎉");
+    // ✅ Assign `newSocket` before setting listeners
+    socket = newSocket;
 
-      // Always request a new party when screen loads
-      socket.emit('create_party');
+    // ✅ Use `?.` to prevent accessing socket before it's ready
+    socket?.onConnect((_) {
+      print("🎉 Connected to backend");
+
+      final settingsController = context.read<SettingsController>();
+      final playerName = settingsController.playerName.value;
+
+      socket?.emit('create_party', {
+        'playerName': playerName, // Send player name to server
+      });
     });
 
-    socket.on('party_created', (data) {
-      print("Received party code: ${data['lobbyCode']}");
-
+    socket?.on('party_created', (data) {
+      print("🎊 Received party code: ${data['lobbyCode']}");
       if (mounted) {
         setState(() {
-          lobbyCode = data['lobbyCode']; // Update UI
+          lobbyCode = data['lobbyCode'];
         });
       }
     });
 
-    socket.onConnectError((err) {
-      print("Socket connection error: $err");
+    socket?.onConnectError((err) {
+      print("⚠️ Socket connection error: $err");
     });
 
-    socket.onDisconnect((_) {
-      print("Disconnected from backend ❌");
+    socket?.onDisconnect((_) {
+      print("❌ Disconnected from backend");
     });
 
-    // Ensure we connect (in case the socket was disconnected)
-    if (!socket.connected) {
-      socket.connect();
-    }
+    print("🔌 Attempting to connect to socket...");
+    socket?.connect();
   }
 
   @override
@@ -198,12 +217,14 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
         // 🔙 Back Button
         rectangularMenuArea: MyButton(
           onPressed: () {
-            if (socket.connected) {
-              socket.emit('delete_party', {
-                'lobbyCode': lobbyCode,
-              }); // 🔥 Delete the party
+            print("🔙 Back button pressed! Disconnecting socket...");
+            if (socket != null && socket!.connected) {
+              socket?.emit('delete_party', {'lobbyCode': lobbyCode});
+              socket?.disconnect();
             }
-            socket.disconnect(); // Now disconnect
+
+            socket = null; // Ensure a fresh instance next time
+            print("🏠 Navigating back to Main Menu...");
             GoRouter.of(context).go('/');
           },
           child: const Text('Back'),

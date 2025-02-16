@@ -42,9 +42,9 @@ class SettingsController {
   /// Load settings from storage
     Future<void> loadSettings() async {
     playerName.value = await _store.getPlayerName();
-    audioOn.value = await _store.getAudioOn(defaultValue: true);
-    soundsOn.value = await _store.getSoundsOn(defaultValue: true);
-    musicOn.value = await _store.getMusicOn(defaultValue: true);
+    audioOn.value = await _store.getAudioOn(defaultValue: false);
+    soundsOn.value = await _store.getSoundsOn(defaultValue: false);
+    musicOn.value = await _store.getMusicOn(defaultValue: false);
 
     _log.fine(() => 'Loaded settings: Player: ${playerName.value}, Audio: ${audioOn.value}, Sounds: ${soundsOn.value}, Music: ${musicOn.value}');
   }
