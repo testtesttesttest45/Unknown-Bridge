@@ -158,214 +158,234 @@ class MainMenuScreenState extends State<MainMenuScreen> {
   }
 
   @override
-Widget build(BuildContext context) {
-  final palette = context.watch<Palette>();
-  final audioController = context.watch<AudioController>();
+  Widget build(BuildContext context) {
+    final palette = context.watch<Palette>();
+    final audioController = context.watch<AudioController>();
 
-  return Scaffold(
-    backgroundColor: palette.backgroundMain,
-    body: Stack(
-      children: [
-        // 🎴 Playing Cards Decoration Layer
-        Positioned.fill(
-          child: CustomPaint(
-            painter: PlayingCardsPainter(palette),
+    return Scaffold(
+      backgroundColor: palette.backgroundMain,
+      body: Stack(
+        children: [
+          // 🎴 Playing Cards Decoration Layer
+          Positioned.fill(
+            child: CustomPaint(painter: PlayingCardsPainter(palette)),
           ),
-        ),
-        // 🌟 Main UI Elements
-        ResponsiveScreen(
-          squarishMainArea: Center(
-            child: Stack(
-              alignment: Alignment.center,
+
+          // ⚙️ Settings Icon (Top Right)
+          Positioned(
+            top: 20,
+            right: 20,
+            child: IconButton(
+              icon: Icon(
+                Icons.settings,
+                size: 32,
+                color: palette.inkFullOpacity,
+              ),
+              onPressed: () {
+                audioController.playSfx(SfxType.buttonTap);
+                GoRouter.of(context).push('/settings');
+              },
+            ),
+          ),
+
+          // 🌟 Main UI Elements
+          ResponsiveScreen(
+            squarishMainArea: Center(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // 🏷️ Title Background Overlay (With Rotation)
+                  Transform.rotate(
+                    angle: -0.1, // Slight rotation
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: palette.ink.withValues(alpha: 0.8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Transform.rotate(
+                        angle: 0.1, // Rotate back to keep text readable
+                        child: const Text(
+                          'Unknown Bridge',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Permanent Marker',
+                            fontSize: 55,
+                            height: 1,
+                            color: Colors.white, // Ensure text stands out
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            rectangularMenuArea: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // 🏷️ Title Background Overlay (With Rotation)
-                Transform.rotate(
-                  angle: -0.1, // Slight rotation
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: palette.ink.withValues(alpha: 0.8),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Transform.rotate(
-                      angle: 0.1, // Rotate back to keep text readable
-                      child: const Text(
-                        'Unknown Bridge',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Permanent Marker',
-                          fontSize: 55,
-                          height: 1,
-                          color: Colors.white, // Ensure text stands out
-                        ),
-                      ),
-                    ),
-                  ),
+                MyButton(
+                  onPressed: () {
+                    audioController.playSfx(SfxType.buttonTap);
+                    GoRouter.of(context).go('/play');
+                  },
+                  child: const Text('Create Party'),
                 ),
+                _gap,
+                MyButton(
+                  onPressed: () {
+                    audioController.playSfx(SfxType.buttonTap);
+                    _showJoinPartyDialog();
+                  },
+                  child: const Text('Join Party'),
+                ),
+                _gap,
+                const Text('Music by Mr Smith'),
+                _gap,
               ],
             ),
           ),
-          rectangularMenuArea: Column(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              MyButton(
-                onPressed: () {
-                  audioController.playSfx(SfxType.buttonTap);
-                  GoRouter.of(context).go('/play');
-                },
-                child: const Text('Create Party'),
-              ),
-              _gap,
-              MyButton(
-                onPressed: () {
-                  audioController.playSfx(SfxType.buttonTap);
-                  _showJoinPartyDialog();
-                },
-                child: const Text('Join Party'),
-              ),
-              _gap,
-              MyButton(
-                onPressed: () => GoRouter.of(context).push('/settings'),
-                child: const Text('Settings'),
-              ),
-              _gap,
-              const Text('Music by Mr Smith'),
-              _gap,
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-static const _gap = SizedBox(height: 10);
+  static const _gap = SizedBox(height: 10);
 
-// 🎮 Lobby Dialog for "Join Party"
-void _showJoinPartyDialog() {
-  final palette = context.read<Palette>(); // Get the color palette
-  TextEditingController partyCodeController = TextEditingController();
+  // 🎮 Lobby Dialog for "Join Party"
+  void _showJoinPartyDialog() {
+    final palette = context.read<Palette>(); // Get the color palette
+    TextEditingController partyCodeController = TextEditingController();
 
-  showGeneralDialog(
-    context: context,
-    barrierDismissible: false,
-    transitionDuration: const Duration(milliseconds: 300),
-    transitionBuilder: (context, anim1, anim2, child) {
-      return ScaleTransition(
-        scale: CurvedAnimation(parent: anim1, curve: Curves.easeInOut),
-        child: child,
-      );
-    },
-    pageBuilder: (context, anim1, anim2) {
-      return Center(
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            width: 320,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: palette.background4, // Different color from name dialog
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: palette.redPen, width: 3), // Red border for contrast
-              boxShadow: [
-                BoxShadow(
-                  color: palette.redPen.withValues(alpha: 0.8), // Darker red
-                  blurRadius: 10,
-                  spreadRadius: 3,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "Enter Party Code",
-                  style: TextStyle(
-                    fontFamily: 'Permanent Marker',
-                    fontSize: 24,
-                    color: palette.ink, // Text color from palette
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      transitionDuration: const Duration(milliseconds: 300),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return ScaleTransition(
+          scale: CurvedAnimation(parent: anim1, curve: Curves.easeInOut),
+          child: child,
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 320,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: palette.background4, // Different color from name dialog
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: palette.redPen,
+                  width: 3,
+                ), // Red border for contrast
+                boxShadow: [
+                  BoxShadow(
+                    color: palette.redPen.withValues(alpha: 0.8), // Darker red
+                    blurRadius: 10,
+                    spreadRadius: 3,
                   ),
-                ),
-                const SizedBox(height: 15),
-                TextField(
-                  controller: partyCodeController,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: palette.inkFullOpacity,
-                    fontSize: 18,
-                  ),
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: palette.backgroundMain, // Light background
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: palette.redPen),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "Enter Party Code",
+                    style: TextStyle(
+                      fontFamily: 'Permanent Marker',
+                      fontSize: 24,
+                      color: palette.ink, // Text color from palette
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        if (partyCodeController.text.isNotEmpty) {
-                          GoRouter.of(context).go('/play'); // Simulate joining for now
-                          Navigator.of(context).pop();
-                        }
-                      },
-                      style: TextButton.styleFrom(
-                        backgroundColor: palette.redPen, // Red button for contrast
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                      ),
-                      child: Text(
-                        "OK",
-                        style: TextStyle(
-                          fontFamily: 'Permanent Marker',
-                          fontSize: 20,
-                          color: palette.trueWhite, // White text
-                        ),
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: partyCodeController,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: palette.inkFullOpacity,
+                      fontSize: 18,
+                    ),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: palette.backgroundMain, // Light background
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: palette.redPen),
                       ),
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: TextButton.styleFrom(
-                        backgroundColor: palette.darkPen, // Darker button color
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          if (partyCodeController.text.isNotEmpty) {
+                            GoRouter.of(
+                              context,
+                            ).go('/play'); // Simulate joining for now
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor:
+                              palette.redPen, // Red button for contrast
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                        child: Text(
+                          "OK",
+                          style: TextStyle(
+                            fontFamily: 'Permanent Marker',
+                            fontSize: 20,
+                            color: palette.trueWhite, // White text
+                          ),
                         ),
                       ),
-                      child: Text(
-                        "Cancel",
-                        style: TextStyle(
-                          fontFamily: 'Permanent Marker',
-                          fontSize: 20,
-                          color: palette.trueWhite,
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: TextButton.styleFrom(
+                          backgroundColor:
+                              palette.darkPen, // Darker button color
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                        child: Text(
+                          "Cancel",
+                          style: TextStyle(
+                            fontFamily: 'Permanent Marker',
+                            fontSize: 20,
+                            color: palette.trueWhite,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      );
-    },
-  );
-}
-
+        );
+      },
+    );
+  }
 }
 
 // 🎨 Custom Painter for Playing Cards in the Background
 class PlayingCardsPainter extends CustomPainter {
   final Palette palette;
   final Random random = Random();
-  
+
   PlayingCardsPainter(this.palette);
 
   @override
@@ -381,13 +401,13 @@ class PlayingCardsPainter extends CustomPainter {
     //   const Color(0xFFFFB74D), // Orange
     //   const Color(0xFFA1887F), // Brown
     // ];
-    
+
     final suits = ['♥', '♦', '♣', '♠']; // Hearts, Diamonds, Clubs, Spades
     final values = ['A', '2', '7', 'J', 'Q', 'K']; // Some values for variation
 
     final paint = Paint();
 
-     // Define restricted areas (title & button sections)
+    // Define restricted areas (title & button sections)
     final double titleHeight = 100;
     final double buttonHeight = 250;
 
@@ -401,11 +421,9 @@ class PlayingCardsPainter extends CustomPainter {
       do {
         x = random.nextDouble() * size.width;
         y = random.nextDouble() * size.height;
-      } while (
-        (y < titleHeight) ||               // Avoid Title Area
-        (y > size.height - buttonHeight)   // Avoid Button Area
-      );
-
+      } while ((y < titleHeight) || // Avoid Title Area
+          (y > size.height - buttonHeight) // Avoid Button Area
+          );
 
       paint.color = Color.fromARGB(
         255,
@@ -429,7 +447,8 @@ class PlayingCardsPainter extends CustomPainter {
       // Draw suit & value
       final textPainter = TextPainter(
         text: TextSpan(
-          text: '${values[random.nextInt(values.length)]}${suits[random.nextInt(suits.length)]}',
+          text:
+              '${values[random.nextInt(values.length)]}${suits[random.nextInt(suits.length)]}',
           style: TextStyle(
             fontFamily: 'Permanent Marker',
             fontSize: 18,

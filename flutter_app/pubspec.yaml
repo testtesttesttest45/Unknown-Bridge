@@ -33,7 +33,6 @@ flutter:
     - assets/images/
     - assets/music/
     - assets/sfx/
-    - assets/background-image.png
 
   fonts:
     - family: Permanent Marker
@@ -43,9 +42,9 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/AppIcons/playstore.png"
+  image_path: "assets/background-image.png"
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png"
+  adaptive_icon_foreground: "assets/logo_foreground.png"
 
   ios_assets_folder: "AppIcons/Assets.xcassets/AppIcon.appiconset"
 
