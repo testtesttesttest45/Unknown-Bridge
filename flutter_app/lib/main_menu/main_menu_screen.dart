@@ -34,7 +34,6 @@ class MainMenuScreenState extends State<MainMenuScreen> {
 
   void _generateCardPositions() {
     final random = Random();
-    // final palette = context.read<Palette>();
     final suits = ['♥', '♦', '♣', '♠'];
     final values = [
       'A',
@@ -52,7 +51,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
       'K',
     ];
 
-    final screenSize = MediaQuery.of(context).size; // ✅ Now safe to use
+    final screenSize = MediaQuery.of(context).size;
     final double titleHeight = 100;
     final double buttonHeight = 250;
 
@@ -63,6 +62,21 @@ class MainMenuScreenState extends State<MainMenuScreen> {
         y = random.nextDouble() * screenSize.height;
       } while ((y < titleHeight) || (y > screenSize.height - buttonHeight));
 
+      String suit = suits[random.nextInt(suits.length)];
+      String value = values[random.nextInt(values.length)];
+
+      Color randomBackgroundColor = Color.fromARGB(
+        255,
+        random.nextInt(256),
+        random.nextInt(256),
+        random.nextInt(256),
+      ); // ✅ Fully random color
+
+      Color suitColor =
+          (suit == '♥' || suit == '♦')
+              ? Colors.red
+              : Colors.black; // ✅ Separate suit color
+
       cardPositions.add(
         CardData(
           x: x,
@@ -70,19 +84,15 @@ class MainMenuScreenState extends State<MainMenuScreen> {
           width: 50,
           height: 70,
           rotation: (random.nextDouble() - 0.5) * 0.6,
-          color: Color.fromARGB(
-            255,
-            random.nextInt(256),
-            random.nextInt(256),
-            random.nextInt(256),
-          ),
-          suit: suits[random.nextInt(suits.length)],
-          value: values[random.nextInt(values.length)],
+          color: randomBackgroundColor, // ✅ Card background is now fully random
+          suit: suit,
+          value: value,
+          suitColor: suitColor, // ✅ Store suit color separately
         ),
       );
     }
 
-    setState(() {}); // ✅ Ensure the UI updates once positions are set
+    setState(() {}); // ✅ Ensure the UI updates
   }
 
   Future<void> _checkForPlayerName() async {
@@ -472,10 +482,10 @@ class MainMenuScreenState extends State<MainMenuScreen> {
 
     Future.delayed(const Duration(seconds: 1), () {
       if (!hasResponded) {
-        print("⚠️ Lobby check timed out. Assuming invalid.");
         hasResponded = true;
         completer.complete(false);
-        tempSocket.disconnect();
+        tempSocket
+            .dispose(); // ✅ Properly dispose socket without causing UI rebuilds
       }
     });
 
@@ -487,7 +497,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
 // 🎨 Custom Painter for Playing Cards in the Background (No Animations)
 class PlayingCardsPainter extends CustomPainter {
   final Palette palette;
-  final List<CardData> cardPositions; // Cache the positions
+  final List<CardData> cardPositions;
 
   PlayingCardsPainter(this.palette, this.cardPositions);
 
@@ -496,6 +506,7 @@ class PlayingCardsPainter extends CustomPainter {
     final paint = Paint();
 
     for (var card in cardPositions) {
+      // ✅ Ensure card background is fully random
       paint.color = card.color;
 
       // 🃏 Draw the card background
@@ -514,21 +525,42 @@ class PlayingCardsPainter extends CustomPainter {
         paint,
       );
 
-      // 🎴 Draw suit & value
-      final textPainter = TextPainter(
+      // 🎴 Use stored suit color (Red for ♥♦, Black for ♣♠)
+      final suitPainter = TextPainter(
         text: TextSpan(
-          text: '${card.value}${card.suit}',
-          style: const TextStyle(
+          text: card.suit,
+          style: TextStyle(
             fontFamily: 'Permanent Marker',
             fontSize: 18,
-            color: Colors.white,
+            color: card.suitColor, // ✅ Uses stored suit color (Red or Black)
           ),
         ),
         textDirection: TextDirection.ltr,
       );
 
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(-card.width / 3, -card.height / 3));
+      // 🎨 Value (Always white)
+      final valuePainter = TextPainter(
+        text: TextSpan(
+          text: card.value,
+          style: const TextStyle(
+            fontFamily: 'Permanent Marker',
+            fontSize: 18,
+            color: Colors.white, // ✅ Value is always white
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+
+      // Layout and paint text
+      suitPainter.layout();
+      valuePainter.layout();
+
+      // Paint value above the suit
+      valuePainter.paint(canvas, Offset(-card.width / 3, -card.height / 3));
+      suitPainter.paint(
+        canvas,
+        Offset(-card.width / 3 + 14, -card.height / 3),
+      ); // Shift suit slightly right
 
       canvas.restore();
     }
@@ -541,8 +573,9 @@ class PlayingCardsPainter extends CustomPainter {
 // 🎴 Data class to store card positions and details
 class CardData {
   final double x, y, width, height, rotation;
-  final Color color;
+  final Color color; // ✅ Background color (fully random)
   final String suit, value;
+  final Color suitColor; // ✅ Separate suit color (red or black)
 
   CardData({
     required this.x,
@@ -550,8 +583,9 @@ class CardData {
     required this.width,
     required this.height,
     required this.rotation,
-    required this.color,
+    required this.color, // ✅ Random background color
     required this.suit,
     required this.value,
+    required this.suitColor, // ✅ Separate suit color
   });
 }
