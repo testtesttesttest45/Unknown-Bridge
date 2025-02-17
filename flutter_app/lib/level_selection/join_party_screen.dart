@@ -206,9 +206,11 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
     final palette = context.read<Palette>();
     final bool isSelected = gameName == selectedGame;
 
-    return Container(
-      width: 120,
-      height: 140,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300), // ✅ Smooth transition
+      curve: Curves.easeInOut,
+      width: isSelected ? 160 : 120, // ✅ Scale animation
+      height: isSelected ? 180 : 140, // ✅ Scale animation
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isSelected ? palette.pen : palette.backgroundMain,
@@ -231,7 +233,7 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
           AnimatedContainer(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
-            width: isSelected ? 90 : 70,
+            width: isSelected ? 90 : 70, // ✅ Image scales with selection
             height: isSelected ? 90 : 70,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
