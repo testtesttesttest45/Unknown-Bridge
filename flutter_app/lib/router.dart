@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'game_internals/score.dart';
 import 'level_selection/create_party_screen.dart';
 import 'level_selection/join_party_screen.dart';
+import 'games/unknown_game_screen.dart';
 import 'level_selection/levels.dart';
 import 'main_menu/main_menu_screen.dart';
 import 'play_session/play_session_screen.dart';
@@ -42,6 +43,19 @@ final router = GoRouter(
               key: ValueKey('join_party_$lobbyCode'),
               color: context.watch<Palette>().backgroundLevelSelection,
               child: JoinPartyScreen(lobbyCode: lobbyCode),
+            );
+          },
+        ),
+        GoRoute(
+          path: 'play',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>;
+            final lobbyCode = extra['lobbyCode'] as String;
+            final players = List<String>.from(extra['players']);
+
+            return UnknownGameScreen(
+              lobbyCode: lobbyCode,
+              players: players, // Pass players to game screen
             );
           },
         ),

@@ -23,12 +23,17 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   String lobbyCode = "----";
   io.Socket? socket; // Socket for multiplayer
   String? storedPlayerName;
+  bool shouldDeleteParty = true;
 
   @override
   void initState() {
     super.initState();
 
-    // ✅ Store player name when the widget is first initialized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // ✅ Save the navigation state when the widget is still active
+      shouldDeleteParty = ModalRoute.of(context)?.settings.name != '/play';
+    });
+
     final settingsController = context.read<SettingsController>();
     storedPlayerName = settingsController.playerName.value;
 
@@ -38,12 +43,14 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   @override
   void dispose() {
     if (socket != null && socket!.connected) {
-      print("📢 Emitting delete_party before disconnecting...");
-      socket?.emit('delete_party', {'lobbyCode': lobbyCode});
-      socket?.disconnect();
+      if (shouldDeleteParty) {
+        print("📢 Emitting delete_party before disconnecting...");
+        socket?.emit('delete_party', {'lobbyCode': lobbyCode});
+        socket?.disconnect();
+      } else {
+        print("🎮 Game started! Keeping socket connected.");
+      }
     }
-
-    socket = null; // Reset the socket instance
     super.dispose();
   }
 
@@ -107,6 +114,26 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
     socket?.on('party_closed', (_) {
       print("❌ Host left, closing lobby...");
       GoRouter.of(context).go('/'); // Navigate to main menu
+    });
+
+    socket?.on('start_game', (data) {
+      print("🚀 Game has started! Navigating to UnknownGameScreen...");
+
+      shouldDeleteParty = false;
+
+      // ✅ Wait a little before navigating to ensure data is received
+      Future.delayed(Duration(milliseconds: 500), () {
+        if (mounted) {
+          print("🎮 Navigating to game screen with players: ${data['players']}");
+          GoRouter.of(context).go(
+            '/play',
+            extra: {
+              'lobbyCode': lobbyCode,
+              'players': List<String>.from(data['players']),
+            },
+          );
+        }
+      });
     });
 
     socket?.onConnectError((err) {
@@ -219,7 +246,11 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
                             ? null // Disabled if players < 4
                             : () {
                               audioController.playSfx(SfxType.buttonTap);
-                              GoRouter.of(context).go('/play'); // Go to game
+                              if (socket != null && socket!.connected) {
+                                socket?.emit('start_game', {
+                                  'lobbyCode': lobbyCode,
+                                });
+                              }
                             },
                     child: const Text('Start'),
                   ),

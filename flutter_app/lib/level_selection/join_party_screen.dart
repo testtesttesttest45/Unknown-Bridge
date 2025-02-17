@@ -22,12 +22,16 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
   List<String> players = [];
   io.Socket? socket;
   String? storedPlayerName;
+  bool shouldLeaveLobby = true;
 
   @override
   void initState() {
     super.initState();
 
-    // ✅ Store player name when the widget is first initialized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      shouldLeaveLobby = ModalRoute.of(context)?.settings.name != '/play';
+    });
+
     final settingsController = context.read<SettingsController>();
     storedPlayerName = settingsController.playerName.value;
 
@@ -37,15 +41,17 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
   @override
   void dispose() {
     if (socket != null && socket!.connected) {
-      print("📢 Emitting leave_lobby before disconnecting...");
-      socket?.emit('leave_lobby', {
-        'lobbyCode': widget.lobbyCode,
-        'playerName': storedPlayerName,
-      });
-      socket?.disconnect();
+      if (shouldLeaveLobby) {
+        print("📢 Emitting leave_lobby before disconnecting...");
+        socket?.emit('leave_lobby', {
+          'lobbyCode': widget.lobbyCode,
+          'playerName': storedPlayerName,
+        });
+        socket?.disconnect();
+      } else {
+        print("🎮 Game started! Keeping socket connected.");
+      }
     }
-
-    socket = null; // Reset the socket instance
     super.dispose();
   }
 
@@ -92,6 +98,7 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
         GoRouter.of(context).go('/');
       }
     });
+
     socket?.on('player_kicked', (data) {
       if (data['playerName'] == storedPlayerName) {
         print("❌ You were removed by the creator.");
@@ -114,6 +121,26 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
           );
         }
       }
+    });
+
+    socket?.on('start_game', (data) {
+      print("🚀 Game has started! Navigating to UnknownGameScreen...");
+
+      shouldLeaveLobby = false;
+
+      // ✅ Wait a little before navigating to ensure data is received
+      Future.delayed(Duration(milliseconds: 500), () {
+        if (mounted) {
+          print("🎮 Navigating to game screen with players: ${data['players']}");
+          GoRouter.of(context).go(
+            '/play',
+            extra: {
+              'lobbyCode': widget.lobbyCode,
+              'players': List<String>.from(data['players']),
+            },
+          );
+        }
+      });
     });
 
     socket?.onConnectError((err) {

@@ -57,34 +57,34 @@ io.on('connection', (socket) => {
 
     socket.on('join_party', (data) => {
         const { lobbyCode, playerName } = data;
-    
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             socket.emit('invalid_lobby'); // ❌ Send response to client
             return;
         }
-    
+
         // Add the new player to the lobby
         lobbies[lobbyCode].players.push({ id: socket.id, name: playerName });
-    
+
         console.log(`👤 ${playerName} joined lobby ${lobbyCode}`);
-    
+
         // Join the socket room for real-time updates
         socket.join(lobbyCode);
-    
+
         // 🔥 Emit updated lobby state to all players in the lobby
         io.to(lobbyCode).emit('lobby_updated', {
             players: lobbies[lobbyCode].players.map(p => p.name),
             gameMode: lobbies[lobbyCode].gameMode || "Unknown",
         });
-    
+
         // ✅ Notify only the joiner that they successfully joined
         socket.emit('lobby_join_success', { lobbyCode });
-    });    
+    });
 
     socket.on('check_lobby_exists', (data) => {
         const { lobbyCode } = data;
-    
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             socket.emit('invalid_lobby'); // ❌ Notify client
@@ -93,29 +93,29 @@ io.on('connection', (socket) => {
             socket.emit('lobby_valid'); // ✅ Notify client
         }
     });
-    
+
     socket.on('kick_player', (data) => {
         const { lobbyCode, playerName } = data;
-    
+
         if (!lobbies[lobbyCode] || lobbies[lobbyCode].host !== socket.id) {
             console.log(`❌ Unauthorized kick request for ${lobbyCode}`);
             return;
         }
-    
+
         const playerIndex = lobbies[lobbyCode].players.findIndex(p => p.name === playerName);
         if (playerIndex !== -1) {
             const kickedPlayer = lobbies[lobbyCode].players.splice(playerIndex, 1);
             console.log(`👢 ${playerName} was kicked from lobby ${lobbyCode}`);
-    
+
             io.to(lobbyCode).emit('lobby_updated', {
                 players: lobbies[lobbyCode].players.map(p => p.name),
                 gameMode: lobbies[lobbyCode].gameMode
             });
-    
+
             io.to(kickedPlayer[0].id).emit('player_kicked', { playerName });
         }
     });
-    
+
 
     socket.on('change_game_mode', (data) => {
         const { lobbyCode, gameMode } = data;
@@ -149,26 +149,33 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Find and remove the player from the lobby
+        // ✅ Don't remove players if the game has started
+        if (lobbies[lobbyCode].inGame) {
+            console.log(`⚠️ ${playerName} tried to leave, but game is active.`);
+            return;
+        }
+
+        // Remove player from the lobby
         const playerIndex = lobbies[lobbyCode].players.findIndex(p => p.name === playerName);
         if (playerIndex !== -1) {
             lobbies[lobbyCode].players.splice(playerIndex, 1);
             console.log(`👋 ${playerName} left lobby ${lobbyCode}`);
         }
 
-        // If the lobby becomes empty, delete it
-        if (lobbies[lobbyCode].players.length === 0) {
+        // Delete the lobby only if it's empty **and not in-game**
+        if (lobbies[lobbyCode].players.length === 0 && !lobbies[lobbyCode].inGame) {
             console.log(`🔥 Lobby ${lobbyCode} deleted as it is now empty.`);
             delete lobbies[lobbyCode];
             return;
         }
 
-        // 🔥 Notify all players in the lobby about the updated state
+        // Notify all players in the lobby about the updated state
         io.to(lobbyCode).emit('lobby_updated', {
             players: lobbies[lobbyCode].players.map(p => p.name),
             gameMode: lobbies[lobbyCode].gameMode
         });
     });
+
 
     socket.on('delete_party', (data) => {
         const { lobbyCode } = data;
@@ -203,6 +210,42 @@ io.on('connection', (socket) => {
             }
         }
     });
+
+    socket.on('start_game', (data) => {
+        const { lobbyCode } = data;
+
+        if (!lobbies[lobbyCode] || lobbies[lobbyCode].host !== socket.id) {
+            console.log(`❌ Unauthorized game start request for lobby ${lobbyCode}`);
+            return;
+        }
+
+        console.log(`🚀 Game starting for lobby ${lobbyCode}`);
+        console.log(`📢 Current players in lobby ${lobbyCode}:`,
+            lobbies[lobbyCode].players.map(p => p.name)
+        );
+
+        // ✅ Mark the lobby as in-game to prevent accidental deletion
+        lobbies[lobbyCode].inGame = true;
+
+        // 🔥 Extra logging to see if each player is receiving `start_game`
+        lobbies[lobbyCode].players.forEach((player) => {
+            console.log(`🎯 Sending start_game to player: ${player.name} (ID: ${player.id})`);
+
+            io.to(player.id).emit('start_game', {
+                players: lobbies[lobbyCode].players.map(p => p.name),
+            });
+        });
+
+        // ✅ Ensure that the player list is properly updated for everyone
+        io.to(lobbyCode).emit('lobby_updated', {
+            players: lobbies[lobbyCode].players.map(p => p.name),
+            gameMode: lobbies[lobbyCode].gameMode
+        });
+    });
+
+
+
+
 });
 
 
