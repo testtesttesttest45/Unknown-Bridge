@@ -124,12 +124,15 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
       // ✅ Wait a little before navigating to ensure data is received
       Future.delayed(Duration(milliseconds: 500), () {
         if (mounted) {
-          print("🎮 Navigating to game screen with players: ${data['players']}");
+          print(
+            "🎮 Navigating to game screen with players: ${data['players']}",
+          );
           GoRouter.of(context).go(
             '/play',
             extra: {
               'lobbyCode': lobbyCode,
               'players': List<String>.from(data['players']),
+              'socket': socket, // ✅ Pass the existing socket!
             },
           );
         }

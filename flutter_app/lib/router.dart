@@ -17,6 +17,7 @@ import 'settings/settings_screen.dart';
 import 'style/my_transition.dart';
 import 'style/palette.dart';
 import 'win_game/win_game_screen.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 /// The router describes the game's navigational hierarchy, from the main
 /// screen through settings screens all the way to each individual level.
@@ -52,10 +53,13 @@ final router = GoRouter(
             final extra = state.extra as Map<String, dynamic>;
             final lobbyCode = extra['lobbyCode'] as String;
             final players = List<String>.from(extra['players']);
+            final socket =
+                extra['socket'] as io.Socket; // ✅ Receive the existing socket!
 
             return UnknownGameScreen(
               lobbyCode: lobbyCode,
-              players: players, // Pass players to game screen
+              players: players,
+              socket: socket, // ✅ Pass the socket
             );
           },
         ),

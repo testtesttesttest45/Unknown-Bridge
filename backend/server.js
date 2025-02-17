@@ -64,15 +64,18 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Add the new player to the lobby
+        // ✅ Remove any previous instance of the player before re-adding
+        lobbies[lobbyCode].players = lobbies[lobbyCode].players.filter(p => p.name !== playerName);
+
+        // ✅ Add the new player with a fresh socket ID
         lobbies[lobbyCode].players.push({ id: socket.id, name: playerName });
 
         console.log(`👤 ${playerName} joined lobby ${lobbyCode}`);
 
-        // Join the socket room for real-time updates
+        // ✅ Join the socket room for real-time updates
         socket.join(lobbyCode);
 
-        // 🔥 Emit updated lobby state to all players in the lobby
+        // ✅ Emit updated lobby state to all players
         io.to(lobbyCode).emit('lobby_updated', {
             players: lobbies[lobbyCode].players.map(p => p.name),
             gameMode: lobbies[lobbyCode].gameMode || "Unknown",
@@ -81,6 +84,7 @@ io.on('connection', (socket) => {
         // ✅ Notify only the joiner that they successfully joined
         socket.emit('lobby_join_success', { lobbyCode });
     });
+
 
     socket.on('check_lobby_exists', (data) => {
         const { lobbyCode } = data;
@@ -243,6 +247,23 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('get_player_name', (data) => {
+        const { lobbyCode } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ (DEBUG) Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        const player = lobbies[lobbyCode].players.find(p => p.id === socket.id);
+
+        if (player) {
+            console.log(`📢 (DEBUG) Sending player name to ${socket.id}: ${player.name}`);
+            socket.emit('player_name', { playerName: player.name });
+        } else {
+            console.log(`⚠️ (DEBUG) Player ID ${socket.id} not found in lobby ${lobbyCode}`);
+        }
+    });
 
 
 

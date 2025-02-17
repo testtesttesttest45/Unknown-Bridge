@@ -40,17 +40,18 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
 
   @override
   void dispose() {
-    if (socket != null && socket!.connected) {
-      if (shouldLeaveLobby) {
-        print("📢 Emitting leave_lobby before disconnecting...");
-        socket?.emit('leave_lobby', {
-          'lobbyCode': widget.lobbyCode,
-          'playerName': storedPlayerName,
-        });
-        socket?.disconnect();
-      } else {
-        print("🎮 Game started! Keeping socket connected.");
+    if (socket != null) {
+      if (socket!.connected) {
+        if (shouldLeaveLobby) {
+          print("📢 Emitting leave_lobby before disconnecting...");
+          socket?.emit('leave_lobby', {
+            'lobbyCode': widget.lobbyCode,
+            'playerName': storedPlayerName,
+          });
+        }
+        socket?.disconnect(); // ✅ Ensure socket is fully disconnected
       }
+      socket = null; // ✅ Ensure socket is cleared
     }
     super.dispose();
   }
@@ -131,12 +132,15 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
       // ✅ Wait a little before navigating to ensure data is received
       Future.delayed(Duration(milliseconds: 500), () {
         if (mounted) {
-          print("🎮 Navigating to game screen with players: ${data['players']}");
+          print(
+            "🎮 Navigating to game screen with players: ${data['players']}",
+          );
           GoRouter.of(context).go(
             '/play',
             extra: {
               'lobbyCode': widget.lobbyCode,
               'players': List<String>.from(data['players']),
+              'socket': socket, // ✅ Pass the existing socket!
             },
           );
         }
