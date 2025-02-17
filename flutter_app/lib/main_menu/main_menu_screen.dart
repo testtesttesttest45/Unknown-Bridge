@@ -1,3 +1,5 @@
+import 'dart:async' show Completer;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import '../settings/settings.dart';
 import '../style/my_button.dart';
 import '../style/palette.dart';
 import '../style/responsive_screen.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'dart:math';
 
@@ -287,6 +290,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
   void _showJoinPartyDialog() {
     final palette = context.read<Palette>();
     TextEditingController partyCodeController = TextEditingController();
+    String? errorMessage;
 
     showGeneralDialog(
       context: context,
@@ -300,107 +304,183 @@ class MainMenuScreenState extends State<MainMenuScreen> {
       },
       pageBuilder: (context, anim1, anim2) {
         return Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 320,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: palette.background4,
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: palette.redPen, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: palette.redPen.withOpacity(0.8),
-                    blurRadius: 10,
-                    spreadRadius: 3,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "Enter Party Code",
-                    style: TextStyle(
-                      fontFamily: 'Permanent Marker',
-                      fontSize: 24,
-                      color: palette.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  TextField(
-                    controller: partyCodeController,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: palette.inkFullOpacity,
-                      fontSize: 18,
-                    ),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: palette.backgroundMain,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: palette.redPen),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          if (partyCodeController.text.isNotEmpty) {
-                            GoRouter.of(
-                              context,
-                            ).go('/join-party/${partyCodeController.text}');
-                            Navigator.of(context).pop();
-                          }
-                        },
-                        style: TextButton.styleFrom(
-                          backgroundColor: palette.redPen,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10,
-                          ),
-                        ),
-                        child: Text(
-                          "OK",
-                          style: TextStyle(
-                            fontFamily: 'Permanent Marker',
-                            fontSize: 20,
-                            color: palette.trueWhite,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: TextButton.styleFrom(
-                          backgroundColor: palette.darkPen,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10,
-                          ),
-                        ),
-                        child: Text(
-                          "Cancel",
-                          style: TextStyle(
-                            fontFamily: 'Permanent Marker',
-                            fontSize: 20,
-                            color: palette.trueWhite,
-                          ),
-                        ),
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              return Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 320,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: palette.background4,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: palette.redPen, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: palette.redPen.withOpacity(0.8),
+                        blurRadius: 10,
+                        spreadRadius: 3,
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "Enter Party Code",
+                        style: TextStyle(
+                          fontFamily: 'Permanent Marker',
+                          fontSize: 24,
+                          color: palette.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      TextField(
+                        controller: partyCodeController,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: palette.inkFullOpacity,
+                          fontSize: 18,
+                        ),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: palette.backgroundMain,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: palette.redPen),
+                          ),
+                        ),
+                      ),
+                      if (errorMessage != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          errorMessage!,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          TextButton(
+                            onPressed: () async {
+                              if (partyCodeController.text.isNotEmpty) {
+                                bool isValid = await _attemptJoinLobby(
+                                  partyCodeController.text,
+                                );
+                                if (isValid) {
+                                  Navigator.of(
+                                    context,
+                                  ).pop(); // ✅ Close before navigating
+                                  GoRouter.of(context).go(
+                                    '/join-party/${partyCodeController.text}',
+                                  );
+                                } else {
+                                  setState(() {
+                                    errorMessage = "❌ Lobby does not exist!";
+                                  });
+                                }
+                              }
+                            },
+                            style: TextButton.styleFrom(
+                              backgroundColor: palette.redPen,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 10,
+                              ),
+                            ),
+                            child: Text(
+                              "OK",
+                              style: TextStyle(
+                                fontFamily: 'Permanent Marker',
+                                fontSize: 20,
+                                color: palette.trueWhite,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            style: TextButton.styleFrom(
+                              backgroundColor: palette.darkPen,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 10,
+                              ),
+                            ),
+                            child: Text(
+                              "Cancel",
+                              style: TextStyle(
+                                fontFamily: 'Permanent Marker',
+                                fontSize: 20,
+                                color: palette.trueWhite,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         );
       },
     );
+  }
+
+  Future<bool> _attemptJoinLobby(String lobbyCode) async {
+    final completer = Completer<bool>();
+    bool hasResponded = false; // ✅ Prevent duplicate responses
+
+    final tempSocket = io.io(
+      'http://localhost:3000',
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .setReconnectionAttempts(1)
+          .setReconnectionDelay(500)
+          .build(),
+    );
+
+    tempSocket.onConnect((_) {
+      if (!hasResponded) {
+        print("🔍 Verifying lobby existence: $lobbyCode");
+        tempSocket.emit('check_lobby_exists', {'lobbyCode': lobbyCode});
+      }
+    });
+
+    tempSocket.on('lobby_valid', (_) {
+      if (!hasResponded) {
+        hasResponded = true;
+        print("✅ Lobby exists! Allowing navigation.");
+        completer.complete(true);
+        tempSocket.disconnect();
+      }
+    });
+
+    tempSocket.on('invalid_lobby', (_) {
+      if (!hasResponded) {
+        hasResponded = true;
+        print("❌ Lobby does not exist!");
+        completer.complete(false);
+        tempSocket.disconnect();
+      }
+    });
+
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!hasResponded) {
+        print("⚠️ Lobby check timed out. Assuming invalid.");
+        hasResponded = true;
+        completer.complete(false);
+        tempSocket.disconnect();
+      }
+    });
+
+    tempSocket.connect();
+    return completer.future;
   }
 }
 

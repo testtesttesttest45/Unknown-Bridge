@@ -65,7 +65,6 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
       print("🎉 Connected to backend as joiner");
 
       if (storedPlayerName != null) {
-        // Send request to join the party
         socket?.emit('join_party', {
           'lobbyCode': widget.lobbyCode,
           'playerName': storedPlayerName,
@@ -73,15 +72,25 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
       }
     });
 
-    // 🔥 Listen for real-time lobby updates
     socket?.on('lobby_updated', (data) {
       print("📢 Joiner received updated lobby state: $data");
 
       if (mounted) {
         setState(() {
-          players = List<String>.from(data['players']); // ✅ Update players list
-          selectedGame = data['gameMode'] ?? "Unknown"; // ✅ Update game mode
+          players = List<String>.from(data['players']);
+          selectedGame = data['gameMode'] ?? "Unknown";
         });
+      }
+    });
+
+    socket?.on('party_closed', (_) {
+      print("❌ Host left, closing lobby...");
+
+      socket?.disconnect(); // ✅ Ensure socket is disconnected first
+      socket = null;
+http://localhost:50118/
+      if (mounted) {
+        GoRouter.of(context).go('/');
       }
     });
 
@@ -196,7 +205,7 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
             print("🏠 Navigating back to Main Menu...");
             GoRouter.of(context).go('/');
           },
-          child: const Text('Back'),
+          child: const Text('Leave'),
         ),
       ),
     );

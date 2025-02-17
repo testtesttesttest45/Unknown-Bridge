@@ -50,17 +50,15 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   void _connectToSocket() {
     print("🛠 Resetting socket before navigating to Create Party...");
 
-    // Ensure previous socket instance is safely disconnected before reinitializing
     if (socket != null) {
       if (socket!.connected) {
         socket!.disconnect();
       }
-      socket = null; // Reset before creating a new instance
+      socket = null;
     }
 
-    // ✅ Safely initialize socket instance
-    final newSocket = io.io(
-      'http://localhost:3000', // Change to actual server URL if needed
+    socket = io.io(
+      'http://localhost:3000',
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setReconnectionAttempts(5)
@@ -68,21 +66,15 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
           .build(),
     );
 
-    // ✅ Assign `newSocket` before setting listeners
-    socket = newSocket;
-
     socket?.onConnect((_) {
       print("🎉 Connected to backend");
 
       if (storedPlayerName != null) {
-        socket?.emit('create_party', {
-          'playerName': storedPlayerName, // ✅ Use stored name
-        });
+        socket?.emit('create_party', {'playerName': storedPlayerName});
 
-        // ✅ Add self to the local player list, but only if mounted
         if (mounted) {
           setState(() {
-            players = [storedPlayerName!]; // Add only self initially
+            players = [storedPlayerName!];
           });
         }
       }
@@ -91,7 +83,6 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
     socket?.on('party_created', (data) {
       print("🎊 Received party code: ${data['lobbyCode']}");
 
-      // ✅ Ensure the widget is still mounted before updating state
       if (mounted) {
         setState(() {
           lobbyCode = data['lobbyCode'];
@@ -99,22 +90,23 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
       }
     });
 
-    // 🔥 Listen for real-time lobby updates (Players + Game Mode)
     socket?.on('lobby_updated', (data) {
-      print("📢 Host received lobby update: ${data}");
+      print("📢 Host received lobby update: $data");
 
-      // ✅ Ensure the widget is still mounted before updating state
       if (mounted) {
         setState(() {
-          players = List<String>.from(
-            data['players'],
-          ); // ✅ Sync players from server
-          selectedGame =
-              data['gameMode'] ?? "Unknown"; // Ensure it's never null
+          players = List<String>.from(data['players']);
+          selectedGame = data['gameMode'] ?? "Unknown";
         });
 
         print("✅ Players list updated on host screen: $players");
       }
+    });
+
+    // 🔥 Listen for `party_closed` and navigate back to main menu
+    socket?.on('party_closed', (_) {
+      print("❌ Host left, closing lobby...");
+      GoRouter.of(context).go('/'); // Navigate to main menu
     });
 
     socket?.onConnectError((err) {
@@ -246,11 +238,11 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
               socket?.disconnect();
             }
 
-            socket = null; // Ensure a fresh instance next time
+            socket = null;
             print("🏠 Navigating back to Main Menu...");
             GoRouter.of(context).go('/');
           },
-          child: const Text('Back'),
+          child: const Text('Leave'),
         ),
       ),
     );
