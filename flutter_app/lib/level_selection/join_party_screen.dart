@@ -105,20 +105,76 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
         print("❌ You were removed by the creator.");
 
         if (mounted) {
-          GoRouter.of(context).go('/');
+          final palette = context.read<Palette>(); // ✅ Access the theme colors
+
+          // ✅ Show a themed popup dialog
           showDialog(
             context: context,
-            builder:
-                (context) => AlertDialog(
-                  title: Text("Removed from Lobby"),
-                  content: Text("You were removed by the creator."),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: Text("OK"),
-                    ),
-                  ],
+            barrierDismissible: false, // Prevent closing by tapping outside
+            builder: (BuildContext context) {
+              return Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0),
                 ),
+                backgroundColor:
+                    palette.backgroundMain, // ✅ Use theme background
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // ❌ Red Title Text
+                      Text(
+                        "Removed from Lobby",
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: palette.redPen, // ✅ Red theme color
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+
+                      // ℹ️ Message
+                      Text(
+                        "You have been removed by the host.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: palette.inkFullOpacity, // ✅ Dark text color
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // 🆗 OK Button (Blue)
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close the dialog
+                          GoRouter.of(context).go('/'); // ✅ Return to main menu
+                        },
+                        style: TextButton.styleFrom(
+                          backgroundColor: palette.pen, // ✅ Themed button color
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          "OK",
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: palette.trueWhite, // ✅ White text
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           );
         }
       }
