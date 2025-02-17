@@ -94,6 +94,28 @@ io.on('connection', (socket) => {
         }
     });
     
+    socket.on('kick_player', (data) => {
+        const { lobbyCode, playerName } = data;
+    
+        if (!lobbies[lobbyCode] || lobbies[lobbyCode].host !== socket.id) {
+            console.log(`❌ Unauthorized kick request for ${lobbyCode}`);
+            return;
+        }
+    
+        const playerIndex = lobbies[lobbyCode].players.findIndex(p => p.name === playerName);
+        if (playerIndex !== -1) {
+            const kickedPlayer = lobbies[lobbyCode].players.splice(playerIndex, 1);
+            console.log(`👢 ${playerName} was kicked from lobby ${lobbyCode}`);
+    
+            io.to(lobbyCode).emit('lobby_updated', {
+                players: lobbies[lobbyCode].players.map(p => p.name),
+                gameMode: lobbies[lobbyCode].gameMode
+            });
+    
+            io.to(kickedPlayer[0].id).emit('player_kicked', { playerName });
+        }
+    });
+    
 
     socket.on('change_game_mode', (data) => {
         const { lobbyCode, gameMode } = data;

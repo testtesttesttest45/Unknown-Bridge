@@ -88,9 +88,31 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
 
       socket?.disconnect(); // ✅ Ensure socket is disconnected first
       socket = null;
-http://localhost:50118/
       if (mounted) {
         GoRouter.of(context).go('/');
+      }
+    });
+    socket?.on('player_kicked', (data) {
+      if (data['playerName'] == storedPlayerName) {
+        print("❌ You were removed by the creator.");
+
+        if (mounted) {
+          GoRouter.of(context).go('/');
+          showDialog(
+            context: context,
+            builder:
+                (context) => AlertDialog(
+                  title: Text("Removed from Lobby"),
+                  content: Text("You were removed by the creator."),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text("OK"),
+                    ),
+                  ],
+                ),
+          );
+        }
       }
     });
 

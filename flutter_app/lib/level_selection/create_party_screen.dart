@@ -322,7 +322,9 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
   // 🎭 Lobby Table Row
   Widget _lobbyPlayerRow(int index) {
     final palette = context.read<Palette>();
+
     return Container(
+      height: 40, // 👈 Fixed height for uniform row thickness
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       decoration: BoxDecoration(
         border: Border(
@@ -335,17 +337,44 @@ class _CreatePartyScreenState extends State<CreatePartyScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Show player name if exists, otherwise leave blank
           Text(
-            index < players.length ? players[index] : '',
+            index < players.length ? players[index] : 'Waiting...',
             style: TextStyle(
               fontFamily: 'Permanent Marker',
               fontSize: 18,
-              color: palette.inkFullOpacity,
+              color:
+                  index < players.length ? palette.inkFullOpacity : Colors.grey,
             ),
+          ),
+
+          // 👇 Maintain spacing consistency
+          SizedBox(
+            width: 32, // Matches IconButton size
+            child:
+                index < players.length && players[index] != storedPlayerName
+                    ? GestureDetector(
+                      onTap: () {
+                        _kickPlayer(players[index]);
+                      },
+                      child: Icon(
+                        Icons.remove_circle,
+                        color: palette.redPen,
+                        size: 24, // 👈 Adjust size for correct placement
+                      ),
+                    )
+                    : const SizedBox(), // Keeps spacing even if button isn't shown
           ),
         ],
       ),
     );
+  }
+
+  void _kickPlayer(String playerName) {
+    if (socket != null && socket!.connected) {
+      socket?.emit('kick_player', {
+        'lobbyCode': lobbyCode,
+        'playerName': playerName,
+      });
+    }
   }
 }
