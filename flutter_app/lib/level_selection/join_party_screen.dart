@@ -48,10 +48,11 @@ class _JoinPartyScreenState extends State<JoinPartyScreen> {
             'lobbyCode': widget.lobbyCode,
             'playerName': storedPlayerName,
           });
+          socket?.disconnect();
+        } else {
+          print("🎮 Game started! Keeping socket connected.");
         }
-        socket?.disconnect(); // ✅ Ensure socket is fully disconnected
       }
-      socket = null; // ✅ Ensure socket is cleared
     }
     super.dispose();
   }

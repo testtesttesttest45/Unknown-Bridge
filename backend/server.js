@@ -249,21 +249,29 @@ io.on('connection', (socket) => {
 
     socket.on('get_player_name', (data) => {
         const { lobbyCode } = data;
-
+    
         if (!lobbies[lobbyCode]) {
             console.log(`❌ (DEBUG) Lobby ${lobbyCode} does not exist.`);
             return;
         }
-
+    
         const player = lobbies[lobbyCode].players.find(p => p.id === socket.id);
-
+    
         if (player) {
             console.log(`📢 (DEBUG) Sending player name to ${socket.id}: ${player.name}`);
-            socket.emit('player_name', { playerName: player.name });
+    
+            // ✅ FIX for `socket.io@2.4.1`: Check if the socket is still connected
+            if (io.sockets.connected[socket.id]) {
+                socket.emit('player_name', { playerName: player.name });
+            } else {
+                console.log(`⚠️ (DEBUG) Player ${player.name} (${socket.id}) disconnected before receiving name.`);
+            }
         } else {
             console.log(`⚠️ (DEBUG) Player ID ${socket.id} not found in lobby ${lobbyCode}`);
         }
     });
+    
+
 
 
 
