@@ -96,7 +96,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         Future.delayed(Duration(milliseconds: 600), () {
           setState(() {
             animatingCards.removeWhere((animCard) => animCard.card == card);
-            playerHands[recipient]?.add(card); // 💡 Update recipient's hand on ALL clients
+            playerHands[recipient]?.add(
+              card,
+            ); // 💡 Update recipient's hand on ALL clients
           });
         });
       });
@@ -137,25 +139,34 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   /// **Renders cards for a specific player**
-  Widget _buildPlayerHand(String playerName) {
+  List<Widget> _buildPlayerHand(
+    String playerName, {
+    bool vertical = false,
+    double rotateCards = 0,
+  }) {
     final hand = playerHands[playerName] ?? [];
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: hand
-          .map((card) => Container(
-                margin: EdgeInsets.symmetric(horizontal: 4),
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  card,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ))
-          .toList(),
-    );
+    return hand
+        .map(
+          (card) => Transform.rotate(
+            angle: rotateCards, // 🔥 Rotate cards as needed
+            child: Container(
+              margin: EdgeInsets.symmetric(
+                horizontal: vertical ? 0 : 4,
+                vertical: vertical ? 4 : 0,
+              ),
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                card,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        )
+        .toList();
   }
 
   /// **Builds deck at the center with animating cards**
@@ -184,7 +195,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
         // Animate cards moving to recipients
         ...animatingCards.map((animCard) {
-          final alignment = playerPositions[animCard.recipient] ?? Alignment.center;
+          final alignment =
+              playerPositions[animCard.recipient] ?? Alignment.center;
 
           return AnimatedAlign(
             duration: Duration(milliseconds: 600),
@@ -228,33 +240,141 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             String playerName = entry.key;
             Alignment alignment = entry.value;
 
+            bool isBottom = alignment == Alignment.bottomCenter;
+            bool isTop = alignment == Alignment.topCenter;
+            bool isLeft = alignment == Alignment.centerLeft;
+            bool isRight = alignment == Alignment.centerRight;
+
             return Align(
               alignment: alignment,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 20,
-                    ),
-                    margin: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      playerName,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+              child:
+                  isLeft || isRight
+                      ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isLeft)
+                            Transform.rotate(
+                              angle: pi / 2, // Left name rotated 90°
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 20,
+                                ),
+                                margin: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  playerName,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: _buildPlayerHand(
+                              playerName,
+                              vertical: true,
+                              rotateCards:
+                                  isLeft
+                                      ? pi / 2
+                                      : -pi /
+                                          2, // Rotate left/right cards differently
+                            ),
+                          ),
+                          if (isRight)
+                            Transform.rotate(
+                              angle: -pi / 2, // Right name rotated -90°
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 20,
+                                ),
+                                margin: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  playerName,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      )
+                      : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isTop) // Top Player: Name closest to screen edge, cards below
+                          ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 20,
+                              ),
+                              margin: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                playerName,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _buildPlayerHand(
+                                playerName,
+                                vertical: false,
+                              ),
+                            ),
+                          ],
+                          if (isBottom) // Bottom Player: Cards above, name at bottom
+                          ...[
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: _buildPlayerHand(
+                                playerName,
+                                vertical: false,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 20,
+                              ),
+                              margin: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                playerName,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    ),
-                  ),
-                  _buildPlayerHand(playerName), // 💡 Render ALL player hands
-                ],
-              ),
             );
           }),
 
