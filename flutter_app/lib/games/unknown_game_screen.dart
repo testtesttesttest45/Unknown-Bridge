@@ -1,5 +1,5 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'dart:math'; // For rotation angles
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class UnknownGameScreen extends StatefulWidget {
@@ -18,9 +18,14 @@ class UnknownGameScreen extends StatefulWidget {
   State<UnknownGameScreen> createState() => _UnknownGameScreenState();
 }
 
-class _UnknownGameScreenState extends State<UnknownGameScreen> {
+class _UnknownGameScreenState extends State<UnknownGameScreen>
+    with TickerProviderStateMixin {
   List<String> players = [];
   String currentPlayer = ""; // The player viewing this screen
+  String currentRecipient = ""; // The player currently receiving a card
+  Map<String, List<String>> playerHands = {}; // Cards for all players
+  List<_AnimatingCard> animatingCards = []; // Cards being animated
+  Map<String, Alignment> playerPositions = {}; // Map player names to alignments
 
   @override
   void initState() {
@@ -40,8 +45,23 @@ class _UnknownGameScreenState extends State<UnknownGameScreen> {
           currentPlayer = data['playerName'];
           print("✅ (DEBUG) WHO AM I? I am: $currentPlayer");
 
-          // Ensure correct ordering of players
-          _reorderPlayers();
+          // Initialize player hands
+          for (var player in widget.players) {
+            playerHands[player] = [];
+          }
+
+          // Map player positions
+          _mapPlayerPositions();
+
+          // 📢 Emit distribute_cards after getting player info
+          if (currentPlayer == widget.players.first) {
+            print(
+              "📢 (DEBUG) Emitting distribute_cards for lobby: ${widget.lobbyCode}",
+            );
+            widget.socket.emit('distribute_cards', {
+              'lobbyCode': widget.lobbyCode,
+            });
+          }
         });
       }
     });
@@ -51,62 +71,150 @@ class _UnknownGameScreenState extends State<UnknownGameScreen> {
       widget.socket.emit('get_player_name', {'lobbyCode': widget.lobbyCode});
     });
 
-    widget.socket.on('start_game', (data) {
-      print("🚀 (DEBUG) Received start_game event! Data: $data");
+    // 💡 Receive card event for all players
+    widget.socket.on('receive_card', (data) {
+      final card = data['card'];
+      final recipient = data['playerName'];
 
-      if (data == null || data['players'] == null) {
-        print("⚠️ (DEBUG) start_game data is null or malformed");
+      // Null checks
+      if (card == null || recipient == null) {
+        print(
+          "⚠️ (ERROR) Missing card or playerName in receive_card event: $data",
+        );
         return;
       }
 
-      if (mounted) {
-        setState(() {
-          players = List<String>.from(data['players']);
-          print("✅ (DEBUG) Updated player list after start_game: $players");
-          _reorderPlayers();
+      print("🃏 (DEBUG) Card '$card' is being dealt to $recipient");
+
+      setState(() {
+        currentRecipient = recipient;
+
+        // Start card animation to the recipient
+        animatingCards.add(_AnimatingCard(card: card, recipient: recipient));
+
+        // Simulate animation delay, then add to recipient's hand
+        Future.delayed(Duration(milliseconds: 600), () {
+          setState(() {
+            animatingCards.removeWhere((animCard) => animCard.card == card);
+            playerHands[recipient]?.add(card); // 💡 Update recipient's hand on ALL clients
+          });
+        });
+      });
+    });
+
+    widget.socket.on('all_cards_sent', (data) {
+      final playerName = data['playerName'];
+      if (playerName == currentPlayer) {
+        print(
+          "✅ (DEBUG) All cards received for $playerName. Sending acknowledgment.",
+        );
+        // Emit acknowledgment back to server with lobbyCode
+        widget.socket.emit('cards_received', {
+          'playerName': currentPlayer,
+          'lobbyCode': widget.lobbyCode,
         });
       }
     });
   }
 
-  /// **Reorders players so that the current player is always at the bottom**
-  void _reorderPlayers() {
-    if (currentPlayer.isEmpty || !players.contains(currentPlayer)) {
-      return; // Safety check
-    }
+  /// **Maps player names to screen positions**
+  void _mapPlayerPositions() {
+    List<String> orderedPlayers = List.from(players);
 
-    players.remove(currentPlayer);
-    players.insert(0, currentPlayer);
+    // Move current player to bottom
+    orderedPlayers.remove(currentPlayer);
+    orderedPlayers.insert(0, currentPlayer);
 
-    print("✅ (DEBUG) Player order updated: $players");
+    // Map positions
+    playerPositions = {
+      orderedPlayers[0]: Alignment.bottomCenter, // Self
+      if (orderedPlayers.length > 1) orderedPlayers[1]: Alignment.topCenter,
+      if (orderedPlayers.length > 2) orderedPlayers[2]: Alignment.centerLeft,
+      if (orderedPlayers.length > 3) orderedPlayers[3]: Alignment.centerRight,
+    };
+
+    print("✅ (DEBUG) Player positions mapped: $playerPositions");
   }
 
-  /// **Gets player alignment based on index**
-  Alignment getAlignment(int index) {
-    switch (index) {
-      case 0:
-        return Alignment.bottomCenter; // ✅ Self at bottom
-      case 1:
-        return Alignment.topCenter; // ✅ Player 2 at top
-      case 2:
-        return Alignment.centerLeft; // ✅ Player 3 on left (rotated)
-      case 3:
-        return Alignment.centerRight; // ✅ Player 4 on right (rotated)
-      default:
-        return Alignment.bottomCenter;
-    }
+  /// **Renders cards for a specific player**
+  Widget _buildPlayerHand(String playerName) {
+    final hand = playerHands[playerName] ?? [];
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: hand
+          .map((card) => Container(
+                margin: EdgeInsets.symmetric(horizontal: 4),
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  card,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ))
+          .toList(),
+    );
   }
 
-  /// **Gets rotation angle for player nameplates**
-  double getRotation(int index) {
-    switch (index) {
-      case 2:
-        return pi / 2; // ✅ Left side (90° counterclockwise)
-      case 3:
-        return -pi / 2; // ✅ Right side (-90° clockwise)
-      default:
-        return 0; // ✅ No rotation for Top & Bottom
-    }
+  /// **Builds deck at the center with animating cards**
+  Widget _buildCenterDeck() {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Deck in the center
+        Container(
+          width: 60,
+          height: 90,
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Text(
+              'Deck',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+
+        // Animate cards moving to recipients
+        ...animatingCards.map((animCard) {
+          final alignment = playerPositions[animCard.recipient] ?? Alignment.center;
+
+          return AnimatedAlign(
+            duration: Duration(milliseconds: 600),
+            curve: Curves.easeInOut,
+            alignment: alignment,
+            child: Container(
+              width: 60,
+              height: 90,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 4,
+                    offset: Offset(2, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  animCard.card,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
   }
 
   @override
@@ -115,35 +223,53 @@ class _UnknownGameScreenState extends State<UnknownGameScreen> {
       backgroundColor: Colors.blueGrey[900],
       body: Stack(
         children: [
-          // 🎭 Display nameplates for each player
-          for (int i = 0; i < players.length; i++)
-            Align(
-              alignment: getAlignment(i),
-              child: Transform.rotate(
-                angle: getRotation(i),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 20,
-                  ),
-                  margin: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    players[i],
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+          // 🎭 Display nameplates and hands for each player
+          ...playerPositions.entries.map((entry) {
+            String playerName = entry.key;
+            Alignment alignment = entry.value;
+
+            return Align(
+              alignment: alignment,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 20,
+                    ),
+                    margin: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      playerName,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
+                  _buildPlayerHand(playerName), // 💡 Render ALL player hands
+                ],
               ),
-            ),
+            );
+          }),
+
+          // Center deck and animating cards
+          Center(child: _buildCenterDeck()),
         ],
       ),
     );
   }
+}
+
+/// Helper class to track animating cards
+class _AnimatingCard {
+  final String card;
+  final String recipient;
+
+  _AnimatingCard({required this.card, required this.recipient});
 }

@@ -13,6 +13,7 @@ const io = socketIo(server, {
 
 // Store active lobbies
 const lobbies = {};
+const ongoingDistributions = {};
 
 // Function to log active lobbies
 const logActiveLobbies = () => {
@@ -249,17 +250,17 @@ io.on('connection', (socket) => {
 
     socket.on('get_player_name', (data) => {
         const { lobbyCode } = data;
-    
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ (DEBUG) Lobby ${lobbyCode} does not exist.`);
             return;
         }
-    
+
         const player = lobbies[lobbyCode].players.find(p => p.id === socket.id);
-    
+
         if (player) {
             console.log(`📢 (DEBUG) Sending player name to ${socket.id}: ${player.name}`);
-    
+
             // ✅ FIX for `socket.io@2.4.1`: Check if the socket is still connected
             if (io.sockets.connected[socket.id]) {
                 socket.emit('player_name', { playerName: player.name });
@@ -270,12 +271,132 @@ io.on('connection', (socket) => {
             console.log(`⚠️ (DEBUG) Player ID ${socket.id} not found in lobby ${lobbyCode}`);
         }
     });
+
+    socket.on('cards_received', async (ackData) => {
+        const { lobbyCode, playerName } = ackData;
+
+        console.log(`📨 Received acknowledgment from ${playerName} for lobby ${lobbyCode}`);
+
+        // Check if the distribution exists
+        if (!ongoingDistributions[lobbyCode]) {
+            console.log(`⚠️ No active distribution found for lobby ${lobbyCode}`);
+            console.trace("Trace for missing distribution:");
+            return;
+        }
+
+        const distribution = ongoingDistributions[lobbyCode];
+        const expectedPlayer = distribution.players[distribution.currentPlayerIndex]?.name;
+
+        if (playerName === expectedPlayer) {
+            console.log(`✅ ${playerName} received all cards.`);
+
+            distribution.currentPlayerIndex++;
+
+            if (distribution.currentPlayerIndex < distribution.players.length) {
+                const nextPlayer = distribution.players[distribution.currentPlayerIndex];
+                console.log(`➡️ Moving to next player: ${nextPlayer.name}`);
+                await new Promise(resolve => setTimeout(resolve, 500)); // Short delay before next player
+                await distribution.distributeToPlayer(nextPlayer);
+            } else {
+                console.log("✅ All cards distributed.");
+                console.log("🃏 Cards distributed:", distribution.cardsDistributed);
+
+                // Clean up AFTER all players have received cards
+                if (ongoingDistributions[lobbyCode]) {
+                    delete ongoingDistributions[lobbyCode];
+                    console.log(`🗑️ Cleared distribution state for lobby ${lobbyCode}`);
+                } else {
+                    console.log(`⚠️ Tried to delete non-existing distribution for lobby ${lobbyCode}`);
+                }
+            }
+        } else {
+            console.log(`⚠️ Received unexpected acknowledgment from ${playerName}, expected ${expectedPlayer}`);
+        }
+    });
+
+    socket.on('distribute_cards', async (data) => {
+        const { lobbyCode } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        const deck = shuffleDeck(createDeck());
+        const players = lobbies[lobbyCode].players;
+        const cardsDistributed = {};
+
+        // Initialize player hands
+        players.forEach(player => {
+            cardsDistributed[player.name] = [];
+        });
+
+        let currentPlayerIndex = 0;
+
+        // Ensure the distribution object is stored globally
+        ongoingDistributions[lobbyCode] = {
+            currentPlayerIndex,
+            players,
+            cardsDistributed,
+            deck,
+            async distributeToPlayer(player) {
+                const playerId = player.id;
+                const playerName = player.name;
+
+                console.log(`📢 Distributing cards to ${playerName}`);
+
+                // Send 3 cards to the player
+                for (let i = 0; i < 3; i++) {
+                    const card = this.deck.pop();
+                    this.cardsDistributed[playerName].push(card);
+                    io.to(lobbyCode).emit('receive_card', {
+                        card: card,
+                        playerName: player.name
+                      });
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Delay between cards
+                }
+
+                // Notify player all cards have been sent
+                io.to(playerId).emit('all_cards_sent', { playerName });
+            }
+        };
+
+        console.log(`🚀 Started card distribution for lobby ${lobbyCode}`);
+        console.log(`🎮 Players: ${players.map(p => p.name).join(', ')}`);
+
+        // Start with the first player
+        await ongoingDistributions[lobbyCode].distributeToPlayer(players[currentPlayerIndex]);
+    });
+
+
     
-
-
-
-
 });
+
+
+// Create a standard 52-card deck
+const createDeck = () => {
+    const suits = ['♠', '♥', '♦', '♣'];
+    const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const deck = [];
+
+    suits.forEach(suit => {
+        values.forEach(value => {
+            deck.push(`${value}${suit}`);
+        });
+    });
+
+    return deck;
+};
+
+// Shuffle the deck using Fisher-Yates algorithm
+const shuffleDeck = (deck) => {
+    for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return deck;
+};
+
 
 
 server.listen(3000, () => {
