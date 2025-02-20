@@ -165,37 +165,38 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     final hand = playerHands[playerName] ?? [];
     return hand
         .map(
-          (card) => Transform.rotate(
-            angle: rotateCards, // 🔥 Rotate cards as needed
-            child: Container(
-              width: 60, // Fixed width
-              height: 90, // Fixed height
-              margin:
-                  vertical
-                      ? EdgeInsets.only(
-                        bottom: 2,
-                      ) // 🔥 Reduced vertical spacing
-                      : EdgeInsets.symmetric(
-                        horizontal: 4,
-                      ), // Top/Bottom spacing
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(6),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 4,
-                    offset: Offset(2, 2),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    card,
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
+          (card) => Container(
+            width: vertical ? 65 : 45, // Swap dimensions for rotated cards
+            height: vertical ? 45 : 65,
+            margin: EdgeInsets.only(
+              bottom: vertical ? 4 : 0, // Proper vertical spacing
+              right: vertical ? 0 : 4, // Horizontal spacing
+            ),
+            child: RotatedBox(
+              quarterTurns: (rotateCards / (pi / 2)).round(), // Rotate properly
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 4,
+                      offset: Offset(2, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      card,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               ),
@@ -212,8 +213,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       children: [
         // Deck in the center
         Container(
-          width: 60,
-          height: 90,
+          width: 45,
+          height: 65,
           decoration: BoxDecoration(
             color: Colors.red,
             borderRadius: BorderRadius.circular(8),
@@ -222,6 +223,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             child: Text(
               'Deck',
               style: TextStyle(
+                fontSize: 14,
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
               ),
@@ -237,8 +239,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               return Align(
                 alignment: animCard.animation.value,
                 child: Container(
-                  width: 60,
-                  height: 90,
+                  width: 45,
+                  height: 65,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(8),
@@ -254,7 +256,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     child: Text(
                       animCard.card,
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
