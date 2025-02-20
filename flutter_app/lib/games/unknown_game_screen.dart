@@ -71,7 +71,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       widget.socket.emit('get_player_name', {'lobbyCode': widget.lobbyCode});
     });
 
-    // 💡 Receive card event for all players
     widget.socket.on('receive_card', (data) {
       final card = data['card'];
       final recipient = data['playerName'];
@@ -86,21 +85,40 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
       print("🃏 (DEBUG) Card '$card' is being dealt to $recipient");
 
+      // Create an animation controller for the card
+      final controller = AnimationController(
+        duration: Duration(milliseconds: 600),
+        vsync: this,
+      );
+
+      final alignmentAnimation = AlignmentTween(
+        begin: Alignment.center,
+        end: playerPositions[recipient] ?? Alignment.center,
+      ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOut));
+
+      final animCard = _AnimatingCard(
+        card: card,
+        recipient: recipient,
+        controller: controller,
+        animation: alignmentAnimation,
+      );
+
       setState(() {
-        currentRecipient = recipient;
+        animatingCards.add(animCard);
+      });
 
-        // Start card animation to the recipient
-        animatingCards.add(_AnimatingCard(card: card, recipient: recipient));
+      // Start the animation
+      controller.forward();
 
-        // Simulate animation delay, then add to recipient's hand
-        Future.delayed(Duration(milliseconds: 600), () {
+      // After the animation completes
+      controller.addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
           setState(() {
-            animatingCards.removeWhere((animCard) => animCard.card == card);
-            playerHands[recipient]?.add(
-              card,
-            ); // 💡 Update recipient's hand on ALL clients
+            animatingCards.remove(animCard);
+            playerHands[recipient]?.add(card);
           });
-        });
+          controller.dispose();
+        }
       });
     });
 
@@ -150,18 +168,36 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           (card) => Transform.rotate(
             angle: rotateCards, // 🔥 Rotate cards as needed
             child: Container(
-              margin: EdgeInsets.symmetric(
-                horizontal: vertical ? 0 : 4,
-                vertical: vertical ? 4 : 0,
-              ),
-              padding: EdgeInsets.all(8),
+              width: 60, // Fixed width
+              height: 90, // Fixed height
+              margin:
+                  vertical
+                      ? EdgeInsets.only(
+                        bottom: 2,
+                      ) // 🔥 Reduced vertical spacing
+                      : EdgeInsets.symmetric(
+                        horizontal: 4,
+                      ), // Top/Bottom spacing
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 4,
+                    offset: Offset(2, 2),
+                  ),
+                ],
               ),
-              child: Text(
-                card,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    card,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
             ),
           ),
@@ -195,34 +231,37 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
         // Animate cards moving to recipients
         ...animatingCards.map((animCard) {
-          final alignment =
-              playerPositions[animCard.recipient] ?? Alignment.center;
-
-          return AnimatedAlign(
-            duration: Duration(milliseconds: 600),
-            curve: Curves.easeInOut,
-            alignment: alignment,
-            child: Container(
-              width: 60,
-              height: 90,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 4,
-                    offset: Offset(2, 2),
+          return AnimatedBuilder(
+            animation: animCard.animation,
+            builder: (context, child) {
+              return Align(
+                alignment: animCard.animation.value,
+                child: Container(
+                  width: 60,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 4,
+                        offset: Offset(2, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  animCard.card,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  child: Center(
+                    child: Text(
+                      animCard.card,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         }).toList(),
       ],
@@ -277,6 +316,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                             ),
                           Column(
                             mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.start,
                             children: _buildPlayerHand(
                               playerName,
                               vertical: true,
@@ -387,9 +427,17 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 }
 
 /// Helper class to track animating cards
+/// Helper class to track animating cards
 class _AnimatingCard {
   final String card;
   final String recipient;
+  final AnimationController controller;
+  final Animation<Alignment> animation;
 
-  _AnimatingCard({required this.card, required this.recipient});
+  _AnimatingCard({
+    required this.card,
+    required this.recipient,
+    required this.controller,
+    required this.animation,
+  });
 }
