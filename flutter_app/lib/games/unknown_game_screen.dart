@@ -26,6 +26,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   Map<String, List<String>> playerHands = {}; // Cards for all players
   List<_AnimatingCard> animatingCards = []; // Cards being animated
   Map<String, Alignment> playerPositions = {}; // Map player names to alignments
+  int totalCardsRemaining = 0; // Track total cards left
 
   @override
   void initState() {
@@ -133,6 +134,18 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           'playerName': currentPlayer,
           'lobbyCode': widget.lobbyCode,
         });
+      }
+    });
+
+    // 🔥 New listener for card count updates
+    widget.socket.on('update_card_count', (data) {
+      if (data != null && data['totalCardsRemaining'] != null) {
+        setState(() {
+          totalCardsRemaining = data['totalCardsRemaining'];
+        });
+        print(
+          "🗃️ (DEBUG) Updated total cards remaining: $totalCardsRemaining",
+        );
       }
     });
   }
@@ -276,6 +289,25 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       backgroundColor: Colors.blueGrey[900],
       body: Stack(
         children: [
+          Positioned(
+            top: 16,
+            left: 16,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Total Cards Remaining: $totalCardsRemaining',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            )
+          ),
           // 🎭 Display nameplates and hands for each player
           ...playerPositions.entries.map((entry) {
             String playerName = entry.key;
@@ -426,6 +458,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       ),
     );
   }
+
 }
 
 /// Helper class to track animating cards

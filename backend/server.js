@@ -14,6 +14,7 @@ const io = socketIo(server, {
 // Store active lobbies
 const lobbies = {};
 const ongoingDistributions = {};
+let totalCardsInDeck = 0;
 
 // Function to log active lobbies
 const logActiveLobbies = () => {
@@ -323,6 +324,8 @@ io.on('connection', (socket) => {
         }
 
         const deck = shuffleDeck(createDeck());
+        totalCardsInDeck = deck.length;
+
         const players = lobbies[lobbyCode].players;
         const cardsDistributed = {};
 
@@ -348,11 +351,24 @@ io.on('connection', (socket) => {
                 // Send 3 cards to the player
                 for (let i = 0; i < 3; i++) {
                     const card = this.deck.pop();
+                    totalCardsInDeck--;
+
+                    console.log(`🃏 Dealt card '${card}' to ${playerName}`);
+                    console.log(`🗃️ Total cards remaining: ${totalCardsInDeck}`);
+
                     this.cardsDistributed[playerName].push(card);
+
+                    // Emit card to player
                     io.to(lobbyCode).emit('receive_card', {
                         card: card,
                         playerName: player.name
-                      });
+                    });
+
+                    // 🔥 Emit updated card count to ALL clients
+                    io.to(lobbyCode).emit('update_card_count', {
+                        totalCardsRemaining: totalCardsInDeck
+                    });
+
                     await new Promise(resolve => setTimeout(resolve, 300)); // Delay between cards
                 }
 
@@ -369,7 +385,6 @@ io.on('connection', (socket) => {
     });
 
 
-    
 });
 
 
