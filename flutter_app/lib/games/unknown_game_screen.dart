@@ -23,7 +23,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   List<String> players = [];
   String currentPlayer = ""; // The player viewing this screen
   String currentRecipient = ""; // The player currently receiving a card
-  Map<String, List<String>> playerHands = {}; // Cards for all players
+  Map<String, List<Map<String, dynamic>>> playerHands = {};
   List<_AnimatingCard> animatingCards = []; // Cards being animated
   Map<String, Alignment> playerPositions = {}; // Map player names to alignments
   int totalCardsRemaining = 0; // Track total cards left
@@ -33,6 +33,14 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     super.initState();
     players = List.from(widget.players);
     _setupSocketListeners();
+  }
+
+  @override
+  void dispose() {
+    for (var card in animatingCards) {
+      card.dispose();
+    }
+    super.dispose();
   }
 
   void _setupSocketListeners() {
@@ -86,7 +94,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
       print("🃏 (DEBUG) Card '$card' is being dealt to $recipient");
 
-      // Create an animation controller for the card
+      // Create an animation controller for the card movement
       final controller = AnimationController(
         duration: Duration(milliseconds: 600),
         vsync: this,
@@ -97,28 +105,40 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         end: playerPositions[recipient] ?? Alignment.center,
       ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOut));
 
+      // Create animating card (initially face-down)
       final animCard = _AnimatingCard(
         card: card,
         recipient: recipient,
         controller: controller,
         animation: alignmentAnimation,
+        vsync: this,
       );
 
       setState(() {
         animatingCards.add(animCard);
       });
 
-      // Start the animation
+      // Start movement animation
       controller.forward();
 
-      // After the animation completes
+      // After reaching the player, add face-down card to hand
       controller.addStatusListener((status) {
         if (status == AnimationStatus.completed) {
           setState(() {
             animatingCards.remove(animCard);
-            playerHands[recipient]?.add(card);
+
+            // Add card to player’s hand with isFaceUp = false
+            playerHands[recipient]?.add({
+              'card': card,
+              'isFaceUp': false, // Initially face-down
+            });
+
+            print(
+              "🂠 (DEBUG) Card '$card' added face-down to $recipient's hand.",
+            );
           });
-          controller.dispose();
+
+          animCard.dispose(); // Dispose controller after animation
         }
       });
     });
@@ -137,6 +157,15 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       }
     });
 
+    widget.socket.on('all_cards_distributed', (data) {
+      print("🎉 (DEBUG) All cards distributed. Preparing to flip cards...");
+
+      // Wait 2 seconds, then flip all cards
+      Future.delayed(Duration(seconds: 2), () {
+        _flipAllCards();
+      });
+    });
+
     // 🔥 New listener for card count updates
     widget.socket.on('update_card_count', (data) {
       if (data != null && data['totalCardsRemaining'] != null) {
@@ -148,6 +177,26 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         );
       }
     });
+  }
+
+  void _flipAllCards() {
+    print("🎬 (DEBUG) Flipping all cards...");
+
+    int delay = 0;
+    for (var player in playerHands.keys) {
+      for (var i = 0; i < playerHands[player]!.length; i++) {
+        Future.delayed(Duration(milliseconds: delay), () {
+          setState(() {
+            playerHands[player]![i]['isFaceUp'] = true;
+          });
+          print(
+            "🔄 (DEBUG) Flipping card ${playerHands[player]![i]['card']} for $player",
+          );
+        });
+
+        delay += 500; // Add 500ms delay between each card flip
+      }
+    }
   }
 
   /// **Maps player names to screen positions**
@@ -169,6 +218,58 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     print("✅ (DEBUG) Player positions mapped: $playerPositions");
   }
 
+  Widget _buildCardFace(String card) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(2, 2)),
+        ],
+      ),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            card,
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardBack() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          colors: [Colors.redAccent, Colors.orangeAccent],
+          center: Alignment.center,
+          radius: 0.75,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Transform.rotate(
+            angle: -pi / 4, // Only rotate the "Unknown Bridge" text
+            child: Text(
+              'Unknown Bridge',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// **Renders cards for a specific player**
   List<Widget> _buildPlayerHand(
     String playerName, {
@@ -176,47 +277,61 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     double rotateCards = 0,
   }) {
     final hand = playerHands[playerName] ?? [];
-    return hand
-        .map(
-          (card) => Container(
-            width: vertical ? 65 : 45, // Swap dimensions for rotated cards
-            height: vertical ? 45 : 65,
-            margin: EdgeInsets.only(
-              bottom: vertical ? 4 : 0, // Proper vertical spacing
-              right: vertical ? 0 : 4, // Horizontal spacing
-            ),
-            child: RotatedBox(
-              quarterTurns: (rotateCards / (pi / 2)).round(), // Rotate properly
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(6),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 4,
-                      offset: Offset(2, 2),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      card,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+    return hand.asMap().entries.map((entry) {
+      final index = entry.key;
+      final cardData = entry.value;
+      final card = cardData['card'];
+
+      return Container(
+        width: vertical ? 65 : 45,
+        height: vertical ? 45 : 65,
+        margin: EdgeInsets.only(
+          bottom: vertical ? 4 : 0,
+          right: vertical ? 0 : 4,
+        ),
+        child: RotatedBox(
+          quarterTurns: (rotateCards / (pi / 2)).round(),
+          child: AnimatedSwitcher(
+            duration: Duration(milliseconds: 1500), // Slow down flip animation
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              final rotate = Tween(begin: pi, end: 0.0).animate(
+                CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeInOutBack,
+                ), // Smooth curve
+              );
+              return AnimatedBuilder(
+                animation: rotate,
+                child: child,
+                builder: (context, child) {
+                  final isUnder =
+                      (ValueKey(_isCardFaceUp(playerName, index)) !=
+                          child!.key);
+                  final value =
+                      isUnder ? min(rotate.value, pi / 2) : rotate.value;
+                  return Transform(
+                    transform: Matrix4.rotationY(value),
+                    alignment: Alignment.center,
+                    child: child,
+                  );
+                },
+              );
+            },
+            layoutBuilder:
+                (widget, list) => Stack(children: [widget!, ...list]),
+            switchInCurve: Curves.easeInOutBack,
+            child:
+                _isCardFaceUp(playerName, index)
+                    ? _buildCardFace(card)
+                    : _buildCardBack(),
           ),
-        )
-        .toList();
+        ),
+      );
+    }).toList();
+  }
+
+  bool _isCardFaceUp(String playerName, int cardIndex) {
+    return playerHands[playerName]?[cardIndex]['isFaceUp'] ?? false;
   }
 
   /// **Builds deck at the center with animating cards**
@@ -229,16 +344,34 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           width: 45,
           height: 65,
           decoration: BoxDecoration(
-            color: Colors.red,
+            gradient: RadialGradient(
+              colors: [Colors.redAccent, Colors.orangeAccent],
+              center: Alignment.center,
+              radius: 0.75,
+            ),
             borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black45,
+                blurRadius: 4,
+                offset: Offset(2, 2),
+              ),
+            ],
           ),
           child: Center(
-            child: Text(
-              'Deck',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+            child: Transform.rotate(
+              angle: -pi / 4,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Unknown Bridge',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
           ),
@@ -251,29 +384,44 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             builder: (context, child) {
               return Align(
                 alignment: animCard.animation.value,
-                child: Container(
-                  width: 45,
-                  height: 65,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 4,
-                        offset: Offset(2, 2),
+                child: AnimatedBuilder(
+                  animation: animCard.flipAnimation,
+                  builder: (context, child) {
+                    final isFlipped = animCard.flipAnimation.value >= pi / 2;
+                    return Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.rotationY(
+                        animCard.flipAnimation.value,
                       ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      animCard.card,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                      child: Container(
+                        width: 45,
+                        height: 65,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(2, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child:
+                              isFlipped
+                                  ? Text(
+                                    animCard.card, // Show card face
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                  : _buildCardBack(), // Show card back
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               );
             },
@@ -306,7 +454,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            )
+            ),
           ),
           // 🎭 Display nameplates and hands for each player
           ...playerPositions.entries.map((entry) {
@@ -458,21 +606,70 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       ),
     );
   }
-
 }
 
-/// Helper class to track animating cards
 /// Helper class to track animating cards
 class _AnimatingCard {
   final String card;
   final String recipient;
   final AnimationController controller;
   final Animation<Alignment> animation;
+  late AnimationController flipController;
+  late Animation<double> flipAnimation;
+  bool isFaceUp = false; // Track if the card is face-up
 
   _AnimatingCard({
     required this.card,
     required this.recipient,
     required this.controller,
     required this.animation,
-  });
+    required TickerProvider vsync,
+  }) {
+    flipController = AnimationController(
+      duration: Duration(milliseconds: 500),
+      vsync: vsync,
+    );
+    flipAnimation = Tween<double>(
+      begin: 0,
+      end: pi,
+    ).animate(CurvedAnimation(parent: flipController, curve: Curves.easeInOut));
+  }
+
+  void flip() {
+    flipController.forward().then((_) {
+      isFaceUp = true;
+    });
+  }
+
+  void dispose() {
+    controller.dispose();
+    flipController.dispose();
+  }
+}
+
+class RotationYTransition extends StatelessWidget {
+  final Animation<double> turns;
+  final Widget child;
+
+  const RotationYTransition({
+    Key? key,
+    required this.turns,
+    required this.child,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: turns,
+      builder: (context, child) {
+        final angle = turns.value * pi;
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.rotationY(angle),
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
 }

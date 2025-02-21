@@ -302,6 +302,9 @@ io.on('connection', (socket) => {
                 console.log("✅ All cards distributed.");
                 console.log("🃏 Cards distributed:", distribution.cardsDistributed);
 
+                // 🔥 Notify all clients that all cards are distributed
+                io.to(lobbyCode).emit('all_cards_distributed', { lobbyCode });
+
                 // Clean up AFTER all players have received cards
                 if (ongoingDistributions[lobbyCode]) {
                     delete ongoingDistributions[lobbyCode];
@@ -314,6 +317,7 @@ io.on('connection', (socket) => {
             console.log(`⚠️ Received unexpected acknowledgment from ${playerName}, expected ${expectedPlayer}`);
         }
     });
+
 
     socket.on('distribute_cards', async (data) => {
         const { lobbyCode } = data;
