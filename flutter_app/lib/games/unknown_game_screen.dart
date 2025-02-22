@@ -39,6 +39,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   String? logMessage;
   late AnimationController logMessageController; // For fade-in/out
   late Animation<double> logMessageFadeAnimation;
+  String? nextTurnPlayer;
 
   @override
   void initState() {
@@ -283,9 +284,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             setState(() {
               isWheelSpinning = false;
               showWinnerText = true;
-              showWinnerHighlight =
-                  true; // ✅ Trigger highlight using localWinner
-              wheelWinner = localWinner; // ✅ Explicitly set after animation
+              showWinnerHighlight = true;
+              wheelWinner = localWinner;
+
+              // ✅ Update current turn
+              currentTurnStatus = "Current turn: $localWinner";
+
+              // ✅ Update next turn based on turnOrder
+              int winnerIndex = turnOrder.indexOf(localWinner);
+              int nextIndex = (winnerIndex + 1) % turnOrder.length;
+              nextTurnPlayer = turnOrder[nextIndex];
+
+              // ✅ Show log message
+              _showLogMessage("The wheelspin winner is $localWinner");
             });
 
             // 🔥 Add 2-second delay before hiding the wheel
@@ -433,7 +444,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     return (isWheelSpinning || (showWheel && wheelWinner != null))
         ? Positioned.fill(
           child: Container(
-            color: Colors.black.withOpacity(0.7),
+            color: Colors.black.withValues(alpha: 0.7),
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -635,10 +646,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     }).toList();
   }
 
-  bool _isCardFaceUp(String playerName, int cardIndex) {
-    return playerHands[playerName]?[cardIndex]['isFaceUp'] ?? false;
-  }
-
   /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
     return Stack(
@@ -731,7 +738,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               );
             },
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -752,7 +759,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -778,13 +785,31 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     color: Colors.black.withOpacity(0.7),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(
-                    currentTurnStatus,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        currentTurnStatus,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (nextTurnPlayer !=
+                          null) // ✅ Show next turn if available
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            "Next turn: $nextTurnPlayer",
+                            style: TextStyle(
+                              color: Colors.grey[300],
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
 
@@ -827,16 +852,18 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             bool isRight = alignment == Alignment.centerRight;
 
             bool shouldHighlight =
-                (playerName == wheelWinner && showWinnerHighlight && !isWheelSpinning);
+                (playerName == wheelWinner &&
+                    showWinnerHighlight &&
+                    !isWheelSpinning);
 
-            print(
-              "🎨 Rendering nameplate for $playerName | Highlight: $shouldHighlight",
-            );
+            // print(
+            //   "🎨 Rendering nameplate for $playerName | Highlight: $shouldHighlight",
+            // );
 
             Color nameplateColor =
                 shouldHighlight
-                    ? Colors.yellowAccent.withOpacity(0.8)
-                    : Colors.black.withOpacity(0.7);
+                    ? Colors.yellowAccent.withValues(alpha: 0.8)
+                    : Colors.black.withValues(alpha: 0.7);
 
             Color textColor = shouldHighlight ? Colors.black : Colors.white;
 
@@ -979,7 +1006,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           if (revealCountdown != null)
             Positioned.fill(
               child: Container(
-                color: Colors.black.withOpacity(0.5),
+                color: Colors.black.withValues(alpha: 0.5),
                 child: Center(
                   child: AnimatedSwitcher(
                     duration: Duration(milliseconds: 500),
@@ -1017,7 +1044,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       ),
     );
   }
-
 }
 
 /// Helper class to track animating cards
@@ -1064,10 +1090,10 @@ class RotationYTransition extends StatelessWidget {
   final Widget child;
 
   const RotationYTransition({
-    Key? key,
+    super.key,
     required this.turns,
     required this.child,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

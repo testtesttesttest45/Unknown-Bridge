@@ -327,7 +327,7 @@ class MainMenuScreenState extends State<MainMenuScreen> {
                     border: Border.all(color: palette.redPen, width: 3),
                     boxShadow: [
                       BoxShadow(
-                        color: palette.redPen.withOpacity(0.8),
+                        color: palette.redPen.withValues(alpha: 0.8),
                         blurRadius: 10,
                         spreadRadius: 3,
                       ),
