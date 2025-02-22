@@ -398,22 +398,54 @@ io.on('connection', (socket) => {
 
         // Ensure only the host triggers the spin
         const isHost = lobbies[lobbyCode].players[0].id === socket.id;
-        if (!isHost) {
-            return;
-        }
+        if (!isHost) return;
 
         const players = lobbies[lobbyCode].players.map(p => p.name);
         const winner = players[Math.floor(Math.random() * players.length)];
 
-        // Broadcast winner and player order to all clients
+        const winnerIndex = players.indexOf(winner);
+        const turnOrder = players.slice(winnerIndex).concat(players.slice(0, winnerIndex));
+
+        console.log(`🎉 (SERVER) The winner of the wheelspin is: ${winner}`);
+        console.log(`🔄 (SERVER) New turn order: ${turnOrder.join(', ')}`);
+
+        // Track acknowledgments
+        const acknowledgedClients = new Set();
+
+        // Broadcast wheelspin_result to all clients
         io.to(lobbyCode).emit('wheelspin_result', {
             winner,
             players,
+            turnOrder
         });
 
-        // Log the winner on the server console
-        console.log(`🎉 (SERVER) The winner of the wheelspin is: ${winner}`);
+        // Listen for acknowledgments
+        socket.on('wheelspin_received', ({ playerName }) => {
+            acknowledgedClients.add(playerName);
+            console.log(`✅ (SERVER) ${playerName} acknowledged wheelspin_result`);
+
+            // When all players have acknowledged
+            if (acknowledgedClients.size === players.length) {
+                console.log(`✅ (SERVER) All players acknowledged the wheelspin.`);
+                // Optionally, emit a "proceed" event if needed
+                io.to(lobbyCode).emit('all_acknowledged', { winner });
+            }
+        });
     });
+
+    // Handle state synchronization requests
+    socket.on('request_current_state', (data) => {
+        const { lobbyCode } = data;
+        const lobby = lobbies[lobbyCode];
+
+        if (lobby) {
+            socket.emit('current_game_state', {
+                currentWinner: lobby.currentWinner || null,
+                players: lobby.players.map(p => p.name),
+            });
+        }
+    });
+
 
 
 

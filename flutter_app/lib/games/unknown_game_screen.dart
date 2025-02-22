@@ -33,6 +33,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   String? wheelWinner;
   double wheelRotation = 0.0;
   bool showWinnerText = false;
+  bool showWheel = true;
+  bool showWinnerHighlight = false;
 
   @override
   void initState() {
@@ -40,8 +42,18 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     players = List.from(widget.players);
     _setupSocketListeners();
 
-    Ticker wheelTicker;
-    wheelTicker = createTicker((elapsed) {
+    // 🔥 Request current game state after a slight delay
+    Future.delayed(Duration(milliseconds: 500), () {
+      print(
+        "📢 (SYNC) Requesting current game state for lobby: ${widget.lobbyCode}",
+      );
+      widget.socket.emit('request_current_state', {
+        'lobbyCode': widget.lobbyCode,
+      });
+    });
+
+    // Wheel ticker for spinning animation
+    Ticker wheelTicker = createTicker((elapsed) {
       if (isWheelSpinning) {
         setState(() {
           wheelRotation += 0.1;
@@ -196,53 +208,99 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     widget.socket.on('wheelspin_result', (data) {
       final winner = data['winner'];
-      final serverPlayers = List<String>.from(
-        data['players'],
-      ); // Get ordered players
-      print("🎉 (CLIENT) The winner of the wheelspin is: $winner");
+      final serverPlayers = List<String>.from(data['players']);
+      final turnOrder = List<String>.from(data['turnOrder']);
 
-      setState(() {
-        players = serverPlayers; // Update player list to match server
-        isWheelSpinning = true;
-        wheelWinner = winner;
-        showWinnerText = false;
-      });
+      print("🎉 (CLIENT) Received wheelspin_result | Winner: $winner");
+      print("🔄 (CLIENT) Turn order: ${turnOrder.join(', ')}");
 
-      // Calculate final rotation to land on the winner
-      int winnerIndex = players.indexOf(winner);
-      double segmentAngle = (2 * pi) / players.length;
-      double targetRotation =
-          (2 * pi * 5) - (segmentAngle * winnerIndex); // 5 full spins
-
-      // Animate the spin over 4 seconds
-      AnimationController spinController = AnimationController(
-        duration: Duration(seconds: 4),
-        vsync: this,
-      );
-
-      Animation<double> spinAnimation = Tween<double>(
-        begin: 0,
-        end: targetRotation,
-      ).animate(
-        CurvedAnimation(parent: spinController, curve: Curves.easeOutCubic),
-      );
-
-      spinController.addListener(() {
+      if (winner != null && mounted) {
         setState(() {
-          wheelRotation = spinAnimation.value;
+          players = serverPlayers;
+          isWheelSpinning = true;
+          wheelWinner = winner; // ✅ Set the winner for all clients
+          showWinnerText = false;
+          showWheel = true;
+          showWinnerHighlight = false;
         });
-      });
 
-      spinController.addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
+        // ✅ Emit acknowledgment back to the server
+        widget.socket.emit('wheelspin_received', {
+          'playerName': currentPlayer,
+          'lobbyCode': widget.lobbyCode,
+        });
+
+        // Proceed with wheel animation
+        int winnerIndex = players.indexOf(winner);
+        double segmentAngle = (2 * pi) / players.length;
+        double targetRotation = (2 * pi * 5) - (segmentAngle * winnerIndex);
+
+        AnimationController spinController = AnimationController(
+          duration: Duration(seconds: 4),
+          vsync: this,
+        );
+
+        Animation<double> spinAnimation = Tween<double>(
+          begin: 0,
+          end: targetRotation,
+        ).animate(
+          CurvedAnimation(parent: spinController, curve: Curves.easeOutCubic),
+        );
+
+        spinController.addListener(() {
           setState(() {
-            isWheelSpinning = false;
-            showWinnerText  = true;
+            wheelRotation = spinAnimation.value;
           });
-        }
-      });
+        });
 
-      spinController.forward();
+        spinController.addStatusListener((status) async {
+          if (status == AnimationStatus.completed) {
+            print("✅ Wheel spin complete on this client. Winner: $wheelWinner");
+
+            setState(() {
+              isWheelSpinning = false;
+              showWinnerText = true;
+              showWinnerHighlight = true; // ✅ Trigger highlight
+            });
+
+            // 🔥 Add 2-second delay before hiding the wheel
+            await Future.delayed(Duration(seconds: 2));
+
+            if (mounted) {
+              setState(() {
+                showWheel = false; // Hide the wheel after delay
+                print(
+                  "🎯 Wheel closed after delay. Highlighting winner: $wheelWinner",
+                );
+              });
+            }
+          }
+        });
+
+        spinController.forward();
+      } else {
+        print("⚠️ (ERROR) Invalid winner data received: $data");
+
+        // 🔄 Request state sync if invalid data
+        widget.socket.emit('request_current_state', {
+          'lobbyCode': widget.lobbyCode,
+        });
+      }
+    });
+
+    widget.socket.on('current_game_state', (data) {
+      final currentWinner = data['currentWinner'];
+      final playersList = List<String>.from(data['players']);
+
+      print("🔄 (SYNC) Current game state received | Winner: $currentWinner");
+
+      if (currentWinner != null && mounted) {
+        setState(() {
+          players = playersList;
+          wheelWinner = currentWinner;
+          showWinnerHighlight = true;
+        });
+      }
     });
   }
 
@@ -309,7 +367,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   Widget _buildWheelSpin() {
-    return isWheelSpinning || wheelWinner != null
+    return (isWheelSpinning || (showWheel && wheelWinner != null))
         ? Positioned.fill(
           child: Container(
             color: Colors.black.withOpacity(0.7),
@@ -317,47 +375,48 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Transform.rotate(
-                        angle: wheelRotation,
-                        child: Container(
-                          width: 250,
-                          height: 250,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                          ),
-                          child: Stack(
-                            children: List.generate(players.length, (index) {
-                              final angle = (2 * pi / players.length) * index;
-                              return Transform.rotate(
-                                angle: angle,
-                                child: Align(
-                                  alignment: Alignment.topCenter,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: Text(
-                                      players[index],
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color:
-                                            Colors.primaries[index %
-                                                Colors.primaries.length],
+                  if (showWheel) // Only show wheel if showWheel is true
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Transform.rotate(
+                          angle: wheelRotation,
+                          child: Container(
+                            width: 250,
+                            height: 250,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                            child: Stack(
+                              children: List.generate(players.length, (index) {
+                                final angle = (2 * pi / players.length) * index;
+                                return Transform.rotate(
+                                  angle: angle,
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 10),
+                                      child: Text(
+                                        players[index],
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color:
+                                              Colors.primaries[index %
+                                                  Colors.primaries.length],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            }),
+                                );
+                              }),
+                            ),
                           ),
                         ),
-                      ),
-                      Icon(Icons.arrow_drop_up, size: 50, color: Colors.red),
-                    ],
-                  ),
+                        Icon(Icons.arrow_drop_up, size: 50, color: Colors.red),
+                      ],
+                    ),
                   SizedBox(height: 20),
                   if (showWinnerText && wheelWinner != null)
                     Text(
@@ -616,6 +675,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
   @override
   Widget build(BuildContext context) {
+    print(
+      "🔄 Rebuilding UI | Current Winner: $wheelWinner | Highlight: $showWinnerHighlight",
+    );
+
     return Scaffold(
       backgroundColor: Colors.blueGrey[900],
       body: Stack(
@@ -639,6 +702,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               ),
             ),
           ),
+
           // 🎭 Display nameplates and hands for each player
           ...playerPositions.entries.map((entry) {
             String playerName = entry.key;
@@ -649,149 +713,160 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             bool isLeft = alignment == Alignment.centerLeft;
             bool isRight = alignment == Alignment.centerRight;
 
+            bool shouldHighlight =
+                (playerName == wheelWinner && showWinnerHighlight);
+
+            print(
+              "🎨 Rendering nameplate for $playerName | Highlight: $shouldHighlight",
+            );
+
+            Color nameplateColor =
+                shouldHighlight
+                    ? Colors.yellowAccent.withOpacity(0.8)
+                    : Colors.black.withOpacity(0.7);
+
+            Color textColor = shouldHighlight ? Colors.black : Colors.white;
+
             return Align(
               alignment: alignment,
-              child:
-                  isLeft || isRight
-                      ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isLeft)
-                            Transform.rotate(
-                              angle: pi / 2, // Left name rotated 90°
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                  horizontal: 20,
-                                ),
-                                margin: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  playerName,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // For Top and Bottom positions
+                  if (isTop || isBottom) ...[
+                    if (isTop)
+                      Container(
+                        key: ValueKey(
+                          "$playerName-${shouldHighlight ? 'highlight' : 'normal'}",
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 20,
+                        ),
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: nameplateColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          playerName,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: _buildPlayerHand(playerName, vertical: false),
+                    ),
+                    if (isBottom)
+                      Container(
+                        key: ValueKey(
+                          "$playerName-${shouldHighlight ? 'highlight' : 'normal'}",
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 20,
+                        ),
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: nameplateColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          playerName,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ),
+                  ],
+
+                  // For Left and Right positions
+                  if (isLeft || isRight)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isLeft)
+                          Transform.rotate(
+                            angle: pi / 2,
+                            child: Container(
+                              key: ValueKey(
+                                "$playerName-${shouldHighlight ? 'highlight' : 'normal'}",
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 20,
+                              ),
+                              margin: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: nameplateColor,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                playerName,
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
                                 ),
                               ),
-                            ),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            children: _buildPlayerHand(
-                              playerName,
-                              vertical: true,
-                              rotateCards:
-                                  isLeft
-                                      ? pi / 2
-                                      : -pi /
-                                          2, // Rotate left/right cards differently
                             ),
                           ),
-                          if (isRight)
-                            Transform.rotate(
-                              angle: -pi / 2, // Right name rotated -90°
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                  horizontal: 20,
-                                ),
-                                margin: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  playerName,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: _buildPlayerHand(
+                            playerName,
+                            vertical: true,
+                            rotateCards: isLeft ? pi / 2 : -pi / 2,
+                          ),
+                        ),
+                        if (isRight)
+                          Transform.rotate(
+                            angle: -pi / 2,
+                            child: Container(
+                              key: ValueKey(
+                                "$playerName-${shouldHighlight ? 'highlight' : 'normal'}",
                               ),
-                            ),
-                        ],
-                      )
-                      : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isTop) // Top Player: Name closest to screen edge, cards below
-                          ...[
-                            Container(
                               padding: const EdgeInsets.symmetric(
                                 vertical: 10,
                                 horizontal: 20,
                               ),
                               margin: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.7),
+                                color: nameplateColor,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
                                 playerName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: textColor,
                                 ),
                               ),
                             ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: _buildPlayerHand(
-                                playerName,
-                                vertical: false,
-                              ),
-                            ),
-                          ],
-                          if (isBottom) // Bottom Player: Cards above, name at bottom
-                          ...[
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: _buildPlayerHand(
-                                playerName,
-                                vertical: false,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 10,
-                                horizontal: 20,
-                              ),
-                              margin: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                playerName,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
             );
           }),
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
 
+          // Reveal countdown
           if (revealCountdown != null)
             Positioned.fill(
               child: Container(
-                color: Colors.black.withOpacity(
-                  0.5,
-                ), // Slight overlay for focus
+                color: Colors.black.withOpacity(0.5),
                 child: Center(
                   child: AnimatedSwitcher(
                     duration: Duration(milliseconds: 500),
@@ -803,9 +878,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     },
                     child: Text(
                       'REVEALING CARDS IN $revealCountdown',
-                      key: ValueKey(
-                        revealCountdown,
-                      ), // Key for AnimatedSwitcher
+                      key: ValueKey(revealCountdown),
                       style: TextStyle(
                         fontFamily: 'Permanent Marker',
                         fontSize: 48,
@@ -824,6 +897,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 ),
               ),
             ),
+
+          // Wheel spin UI
           _buildWheelSpin(),
         ],
       ),
