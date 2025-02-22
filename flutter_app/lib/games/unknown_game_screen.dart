@@ -27,6 +27,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   List<_AnimatingCard> animatingCards = []; // Cards being animated
   Map<String, Alignment> playerPositions = {}; // Map player names to alignments
   int totalCardsRemaining = 0; // Track total cards left
+  int? revealCountdown;
 
   @override
   void initState() {
@@ -179,23 +180,56 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
   }
 
-  void _flipAllCards() {
-    print("🎬 (DEBUG) Flipping all cards...");
+  void _flipAllCards() async {
+    print("🎬 (DEBUG) Flipping only current player's left and right cards...");
 
-    int delay = 0;
-    for (var player in playerHands.keys) {
-      for (var i = 0; i < playerHands[player]!.length; i++) {
-        Future.delayed(Duration(milliseconds: delay), () {
-          setState(() {
-            playerHands[player]![i]['isFaceUp'] = true;
-          });
-          print(
-            "🔄 (DEBUG) Flipping card ${playerHands[player]![i]['card']} for $player",
-          );
-        });
+    // Start countdown
+    setState(() {
+      revealCountdown = 2;
+    });
 
-        delay += 500; // Add 500ms delay between each card flip
-      }
+    await Future.delayed(Duration(seconds: 1));
+    setState(() {
+      revealCountdown = 1;
+    });
+
+    await Future.delayed(Duration(seconds: 1));
+    setState(() {
+      revealCountdown = 0; // Show "0" before flipping
+    });
+
+    await Future.delayed(Duration(seconds: 1)); // Pause at "0"
+    setState(() {
+      revealCountdown = null; // Remove countdown text
+    });
+
+    // Reveal only left and right cards for current player
+    final currentHand = playerHands[currentPlayer];
+
+    if (currentHand != null && currentHand.length >= 3) {
+      // Assuming cards are ordered as [left, center, right]
+      final leftCardIndex = 0;
+      final rightCardIndex = 2;
+
+      // Flip left and right cards face-up
+      setState(() {
+        currentHand[leftCardIndex]['isFaceUp'] = true;
+        currentHand[rightCardIndex]['isFaceUp'] = true;
+      });
+
+      print("🔄 (DEBUG) Revealed left and right cards for $currentPlayer");
+
+      // Wait 2 seconds before flipping them back face-down
+      await Future.delayed(Duration(seconds: 2));
+
+      setState(() {
+        currentHand[leftCardIndex]['isFaceUp'] = false;
+        currentHand[rightCardIndex]['isFaceUp'] = false;
+      });
+
+      print("🔄 (DEBUG) Flipped back left and right cards for $currentPlayer");
+    } else {
+      print("⚠️ (DEBUG) Not enough cards to reveal for $currentPlayer");
     }
   }
 
@@ -602,6 +636,45 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
+
+          if (revealCountdown != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(
+                  0.5,
+                ), // Slight overlay for focus
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: Duration(milliseconds: 500),
+                    transitionBuilder: (
+                      Widget child,
+                      Animation<double> animation,
+                    ) {
+                      return ScaleTransition(scale: animation, child: child);
+                    },
+                    child: Text(
+                      'REVEALING CARDS IN $revealCountdown',
+                      key: ValueKey(
+                        revealCountdown,
+                      ), // Key for AnimatedSwitcher
+                      style: TextStyle(
+                        fontFamily: 'Permanent Marker',
+                        fontSize: 48,
+                        color: Colors.yellowAccent,
+                        shadows: [
+                          Shadow(
+                            blurRadius: 12.0,
+                            color: Colors.black,
+                            offset: Offset(0, 0),
+                          ),
+                        ],
+                        letterSpacing: 2.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
