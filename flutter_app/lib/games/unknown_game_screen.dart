@@ -35,12 +35,26 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   bool showWinnerText = false;
   bool showWheel = true;
   bool showWinnerHighlight = false;
+  String currentTurnStatus = "Distributing Cards";
+  String? logMessage;
+  late AnimationController logMessageController; // For fade-in/out
+  late Animation<double> logMessageFadeAnimation;
 
   @override
   void initState() {
     super.initState();
     players = List.from(widget.players);
     _setupSocketListeners();
+
+    // Initialize log message animation
+    logMessageController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 500),
+    );
+    logMessageFadeAnimation = CurvedAnimation(
+      parent: logMessageController,
+      curve: Curves.easeInOut,
+    );
 
     // 🔥 Request current game state after a slight delay
     Future.delayed(Duration(milliseconds: 500), () {
@@ -68,6 +82,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     for (var card in animatingCards) {
       card.dispose();
     }
+    logMessageController.dispose();
     super.dispose();
   }
 
@@ -188,6 +203,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     widget.socket.on('all_cards_distributed', (data) {
       print("🎉 (DEBUG) All cards distributed. Preparing to flip cards...");
 
+      // Update current turn status to waiting for wheelspin
+      setState(() {
+        currentTurnStatus = "Waiting for wheelspin";
+      });
+
       // Wait 2 seconds, then flip all cards
       Future.delayed(Duration(seconds: 2), () {
         _flipAllCards();
@@ -277,6 +297,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 print(
                   "🎯 Wheel closed after delay. Highlighting winner: $localWinner",
                 );
+                currentTurnStatus = "Current turn: $localWinner";
+                _showLogMessage("The wheelspin winner is $localWinner");
               });
             }
           }
@@ -321,6 +343,28 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         });
       }
     });
+  }
+
+  void _showLogMessage(String message) async {
+    setState(() {
+      logMessage = message;
+    });
+
+    // Start fade-in
+    await logMessageController.forward();
+
+    // Wait 3 seconds while message is visible
+    await Future.delayed(Duration(seconds: 3));
+
+    // Fade out
+    await logMessageController.reverse();
+
+    // Clear message after fade-out
+    if (mounted) {
+      setState(() {
+        logMessage = null;
+      });
+    }
   }
 
   void _flipAllCards() async {
@@ -721,7 +765,57 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               ),
             ),
           ),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Current Turn Status
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    currentTurnStatus,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
 
+                SizedBox(height: 8),
+
+                // Log Message with Fade Animation
+                if (logMessage != null)
+                  FadeTransition(
+                    opacity: logMessageFadeAnimation,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.yellowAccent.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        logMessage!,
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           // 🎭 Display nameplates and hands for each player
           ...playerPositions.entries.map((entry) {
             String playerName = entry.key;
@@ -733,7 +827,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             bool isRight = alignment == Alignment.centerRight;
 
             bool shouldHighlight =
-                (playerName == wheelWinner && showWinnerHighlight);
+                (playerName == wheelWinner && showWinnerHighlight && !isWheelSpinning);
 
             print(
               "🎨 Rendering nameplate for $playerName | Highlight: $shouldHighlight",
@@ -923,6 +1017,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       ),
     );
   }
+
 }
 
 /// Helper class to track animating cards
