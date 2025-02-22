@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class UnknownGameScreen extends StatefulWidget {
@@ -28,12 +29,26 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   Map<String, Alignment> playerPositions = {}; // Map player names to alignments
   int totalCardsRemaining = 0; // Track total cards left
   int? revealCountdown;
+  bool isWheelSpinning = false;
+  String? wheelWinner;
+  double wheelRotation = 0.0;
+  bool showWinnerText = false;
 
   @override
   void initState() {
     super.initState();
     players = List.from(widget.players);
     _setupSocketListeners();
+
+    Ticker wheelTicker;
+    wheelTicker = createTicker((elapsed) {
+      if (isWheelSpinning) {
+        setState(() {
+          wheelRotation += 0.1;
+        });
+      }
+    });
+    wheelTicker.start();
   }
 
   @override
@@ -178,6 +193,57 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         );
       }
     });
+
+    widget.socket.on('wheelspin_result', (data) {
+      final winner = data['winner'];
+      final serverPlayers = List<String>.from(
+        data['players'],
+      ); // Get ordered players
+      print("🎉 (CLIENT) The winner of the wheelspin is: $winner");
+
+      setState(() {
+        players = serverPlayers; // Update player list to match server
+        isWheelSpinning = true;
+        wheelWinner = winner;
+        showWinnerText = false;
+      });
+
+      // Calculate final rotation to land on the winner
+      int winnerIndex = players.indexOf(winner);
+      double segmentAngle = (2 * pi) / players.length;
+      double targetRotation =
+          (2 * pi * 5) - (segmentAngle * winnerIndex); // 5 full spins
+
+      // Animate the spin over 4 seconds
+      AnimationController spinController = AnimationController(
+        duration: Duration(seconds: 4),
+        vsync: this,
+      );
+
+      Animation<double> spinAnimation = Tween<double>(
+        begin: 0,
+        end: targetRotation,
+      ).animate(
+        CurvedAnimation(parent: spinController, curve: Curves.easeOutCubic),
+      );
+
+      spinController.addListener(() {
+        setState(() {
+          wheelRotation = spinAnimation.value;
+        });
+      });
+
+      spinController.addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          setState(() {
+            isWheelSpinning = false;
+            showWinnerText  = true;
+          });
+        }
+      });
+
+      spinController.forward();
+    });
   }
 
   void _flipAllCards() async {
@@ -225,9 +291,89 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       _triggerCardFlip(currentPlayer, rightCardIndex, false); // Flip face-down
 
       print("🔄 (DEBUG) Flipped back left and right cards for $currentPlayer");
+
+      // Wait 2 seconds before starting wheelspin
+      await Future.delayed(Duration(seconds: 2));
+
+      // Start Wheelspin
+      setState(() {
+        isWheelSpinning = true;
+        wheelWinner = null;
+      });
+
+      // Emit spin_wheel event to server
+      widget.socket.emit('spin_wheel', {'lobbyCode': widget.lobbyCode});
     } else {
       print("⚠️ (DEBUG) Not enough cards to reveal for $currentPlayer");
     }
+  }
+
+  Widget _buildWheelSpin() {
+    return isWheelSpinning || wheelWinner != null
+        ? Positioned.fill(
+          child: Container(
+            color: Colors.black.withOpacity(0.7),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: wheelRotation,
+                        child: Container(
+                          width: 250,
+                          height: 250,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                          ),
+                          child: Stack(
+                            children: List.generate(players.length, (index) {
+                              final angle = (2 * pi / players.length) * index;
+                              return Transform.rotate(
+                                angle: angle,
+                                child: Align(
+                                  alignment: Alignment.topCenter,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: Text(
+                                      players[index],
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color:
+                                            Colors.primaries[index %
+                                                Colors.primaries.length],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.arrow_drop_up, size: 50, color: Colors.red),
+                    ],
+                  ),
+                  SizedBox(height: 20),
+                  if (showWinnerText && wheelWinner != null)
+                    Text(
+                      '🎉 Winner: $wheelWinner 🎉',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.yellowAccent,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        )
+        : SizedBox.shrink();
   }
 
   void _triggerCardFlip(String playerName, int cardIndex, bool faceUp) {
@@ -678,6 +824,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 ),
               ),
             ),
+          _buildWheelSpin(),
         ],
       ),
     );

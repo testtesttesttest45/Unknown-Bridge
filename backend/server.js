@@ -388,6 +388,34 @@ io.on('connection', (socket) => {
         await ongoingDistributions[lobbyCode].distributeToPlayer(players[currentPlayerIndex]);
     });
 
+    socket.on('spin_wheel', (data) => {
+        const { lobbyCode } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        // Ensure only the host triggers the spin
+        const isHost = lobbies[lobbyCode].players[0].id === socket.id;
+        if (!isHost) {
+            return;
+        }
+
+        const players = lobbies[lobbyCode].players.map(p => p.name);
+        const winner = players[Math.floor(Math.random() * players.length)];
+
+        // Broadcast winner and player order to all clients
+        io.to(lobbyCode).emit('wheelspin_result', {
+            winner,
+            players,
+        });
+
+        // Log the winner on the server console
+        console.log(`🎉 (SERVER) The winner of the wheelspin is: ${winner}`);
+    });
+
+
 
 });
 
