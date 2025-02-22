@@ -211,26 +211,29 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       final leftCardIndex = 0;
       final rightCardIndex = 2;
 
-      // Flip left and right cards face-up
-      setState(() {
-        currentHand[leftCardIndex]['isFaceUp'] = true;
-        currentHand[rightCardIndex]['isFaceUp'] = true;
-      });
+      // Trigger flip animation for left and right cards
+      _triggerCardFlip(currentPlayer, leftCardIndex, true); // Flip face-up
+      _triggerCardFlip(currentPlayer, rightCardIndex, true); // Flip face-up
 
       print("🔄 (DEBUG) Revealed left and right cards for $currentPlayer");
 
       // Wait 2 seconds before flipping them back face-down
       await Future.delayed(Duration(seconds: 2));
 
-      setState(() {
-        currentHand[leftCardIndex]['isFaceUp'] = false;
-        currentHand[rightCardIndex]['isFaceUp'] = false;
-      });
+      // Flip cards back
+      _triggerCardFlip(currentPlayer, leftCardIndex, false); // Flip face-down
+      _triggerCardFlip(currentPlayer, rightCardIndex, false); // Flip face-down
 
       print("🔄 (DEBUG) Flipped back left and right cards for $currentPlayer");
     } else {
       print("⚠️ (DEBUG) Not enough cards to reveal for $currentPlayer");
     }
+  }
+
+  void _triggerCardFlip(String playerName, int cardIndex, bool faceUp) {
+    setState(() {
+      playerHands[playerName]?[cardIndex]['isFaceUp'] = faceUp;
+    });
   }
 
   /// **Maps player names to screen positions**
@@ -252,8 +255,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     print("✅ (DEBUG) Player positions mapped: $playerPositions");
   }
 
-  Widget _buildCardFace(String card) {
+  Widget _buildCardFace(String card, {Key? key}) {
     return Container(
+      key: key, // Assign key to card face
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -274,8 +278,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
   }
 
-  Widget _buildCardBack() {
+  Widget _buildCardBack({Key? key}) {
     return Container(
+      key: key, // Assign key to card back
       decoration: BoxDecoration(
         gradient: RadialGradient(
           colors: [Colors.redAccent, Colors.orangeAccent],
@@ -288,7 +293,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Transform.rotate(
-            angle: -pi / 4, // Only rotate the "Unknown Bridge" text
+            angle: -pi / 4,
             child: Text(
               'Unknown Bridge',
               style: TextStyle(
@@ -315,6 +320,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       final index = entry.key;
       final cardData = entry.value;
       final card = cardData['card'];
+      final isFaceUp = cardData['isFaceUp'];
 
       return Container(
         width: vertical ? 65 : 45,
@@ -326,25 +332,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         child: RotatedBox(
           quarterTurns: (rotateCards / (pi / 2)).round(),
           child: AnimatedSwitcher(
-            duration: Duration(milliseconds: 1500), // Slow down flip animation
+            duration: Duration(milliseconds: 800), // Flip animation speed
             transitionBuilder: (Widget child, Animation<double> animation) {
-              final rotate = Tween(begin: pi, end: 0.0).animate(
-                CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeInOutBack,
-                ), // Smooth curve
+              final rotateAnim = Tween(begin: pi, end: 0.0).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeInOut),
               );
               return AnimatedBuilder(
-                animation: rotate,
+                animation: rotateAnim,
                 child: child,
                 builder: (context, child) {
-                  final isUnder =
-                      (ValueKey(_isCardFaceUp(playerName, index)) !=
-                          child!.key);
-                  final value =
-                      isUnder ? min(rotate.value, pi / 2) : rotate.value;
+                  final isUnder = (ValueKey(isFaceUp) != child!.key);
+                  var tilt =
+                      isUnder
+                          ? min(rotateAnim.value, pi / 2)
+                          : rotateAnim.value;
                   return Transform(
-                    transform: Matrix4.rotationY(value),
+                    transform: Matrix4.rotationY(tilt),
                     alignment: Alignment.center,
                     child: child,
                   );
@@ -353,11 +356,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             },
             layoutBuilder:
                 (widget, list) => Stack(children: [widget!, ...list]),
-            switchInCurve: Curves.easeInOutBack,
+            switchInCurve: Curves.easeInOut,
             child:
-                _isCardFaceUp(playerName, index)
-                    ? _buildCardFace(card)
-                    : _buildCardBack(),
+                isFaceUp
+                    ? _buildCardFace(card, key: ValueKey('face_$card'))
+                    : _buildCardBack(key: ValueKey('back_$card')),
           ),
         ),
       );
