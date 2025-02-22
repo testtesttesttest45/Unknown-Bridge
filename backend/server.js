@@ -396,7 +396,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Ensure only the host triggers the spin
         const isHost = lobbies[lobbyCode].players[0].id === socket.id;
         if (!isHost) return;
 
@@ -406,32 +405,31 @@ io.on('connection', (socket) => {
         const winnerIndex = players.indexOf(winner);
         const turnOrder = players.slice(winnerIndex).concat(players.slice(0, winnerIndex));
 
+        // ✅ Persist winner in the lobby state
+        lobbies[lobbyCode].currentWinner = winner;
+
         console.log(`🎉 (SERVER) The winner of the wheelspin is: ${winner}`);
         console.log(`🔄 (SERVER) New turn order: ${turnOrder.join(', ')}`);
 
-        // Track acknowledgments
-        const acknowledgedClients = new Set();
-
-        // Broadcast wheelspin_result to all clients
         io.to(lobbyCode).emit('wheelspin_result', {
             winner,
             players,
             turnOrder
         });
 
-        // Listen for acknowledgments
+        const acknowledgedClients = new Set();
+
         socket.on('wheelspin_received', ({ playerName }) => {
             acknowledgedClients.add(playerName);
             console.log(`✅ (SERVER) ${playerName} acknowledged wheelspin_result`);
 
-            // When all players have acknowledged
             if (acknowledgedClients.size === players.length) {
                 console.log(`✅ (SERVER) All players acknowledged the wheelspin.`);
-                // Optionally, emit a "proceed" event if needed
                 io.to(lobbyCode).emit('all_acknowledged', { winner });
             }
         });
     });
+
 
     // Handle state synchronization requests
     socket.on('request_current_state', (data) => {
