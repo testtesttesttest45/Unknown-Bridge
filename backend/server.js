@@ -331,6 +331,9 @@ io.on('connection', (socket) => {
         const deck = shuffleDeck(createDeck());
         totalCardsInDeck = deck.length;
 
+        // ✅ Store deck in lobbies for later use
+        lobbies[lobbyCode].deck = deck;
+
         const players = lobbies[lobbyCode].players;
         const cardsDistributed = {};
 
@@ -388,6 +391,7 @@ io.on('connection', (socket) => {
         // Start with the first player
         await ongoingDistributions[lobbyCode].distributeToPlayer(players[currentPlayerIndex]);
     });
+
 
     socket.on('spin_wheel', (data) => {
         const { lobbyCode } = data;
@@ -462,6 +466,57 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('draw_card', (data) => {
+        const { lobbyCode, playerName } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        const lobby = lobbies[lobbyCode];
+
+        // Prevent multiple draws
+        if (lobby.hasDrawnCard) {
+            console.log(`⚠️ ${playerName} attempted multiple draws. Ignored.`);
+            return;
+        }
+
+        lobby.hasDrawnCard = true; // Lock further draws
+
+        const deck = lobby.deck;
+
+        if (!deck || deck.length === 0) {
+            console.log("⚠️ Deck is empty!");
+            return;
+        }
+
+        const drawnCard = deck.pop();
+        console.log(`🃏 ${playerName} drew card: ${drawnCard}`);
+
+        // Notify all players about the draw animation
+        io.to(lobbyCode).emit('broadcast_draw_animation', {
+            playerName,
+        });
+
+        // Send the drawn card to the player after scaling completes
+        setTimeout(() => {
+            const player = lobby.players.find(p => p.name === playerName);
+            if (player) {
+                io.to(player.id).emit('receive_drawn_card', { card: drawnCard, playerName });
+            }
+
+            // Update total cards remaining
+            io.to(lobbyCode).emit('update_card_count', {
+                totalCardsRemaining: deck.length,
+            });
+
+            // Reset draw lock after turn completes
+            setTimeout(() => {
+                lobby.hasDrawnCard = false;
+            }, 1000); // Allow next draw after a delay
+        }, 1200); // Match scaling duration
+    });
 
 
 

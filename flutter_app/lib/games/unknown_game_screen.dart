@@ -40,6 +40,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   late AnimationController logMessageController; // For fade-in/out
   late Animation<double> logMessageFadeAnimation;
   String? nextTurnPlayer;
+  bool _isDrawing = false; // Prevent multiple draws
+  String? _drawnCard; // Holds the drawn card for the current player
+  bool _isCardFlipped = false; // Tracks if the card has been flipped
+  AnimationController? _deckScaleController; // For scaling animation
 
   @override
   void initState() {
@@ -354,6 +358,62 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         });
       }
     });
+
+    widget.socket.on('broadcast_draw_animation', (data) {
+      final playerName = data['playerName'];
+
+      print("📢 (DEBUG) Received draw animation for $playerName");
+
+      if (mounted) {
+        setState(() {
+          _startCardDrawAnimation();
+        });
+      }
+    });
+
+    widget.socket.on('receive_drawn_card', (data) {
+      final card = data['card'];
+      final playerName = data['playerName'];
+
+      print("🎉 (DEBUG) Received drawn card: $card for $playerName");
+
+      if (playerName == currentPlayer) {
+        setState(() {
+          _drawnCard = card;
+        });
+
+        // Trigger flip after scaling is complete
+        _flipDrawnCard();
+      }
+    });
+  }
+
+  void _flipDrawnCard() {
+    final controller = AnimationController(
+      duration: Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    final flipAnimation = Tween<double>(
+      begin: 0.0,
+      end: pi,
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOut));
+
+    controller.forward();
+
+    controller.addListener(() {
+      setState(() {
+        _isCardFlipped = flipAnimation.value >= pi / 2;
+      });
+    });
+
+    controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        controller.dispose();
+        // Do NOT reset _isDrawing here; let the server trigger the next draw
+        _deckScaleController?.dispose();
+      }
+    });
   }
 
   void _showLogMessage(String message) async {
@@ -648,99 +708,144 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
   /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Deck in the center
-        Container(
-          width: 45,
-          height: 65,
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              colors: [Colors.redAccent, Colors.orangeAccent],
-              center: Alignment.center,
-              radius: 0.75,
-            ),
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black45,
-                blurRadius: 4,
-                offset: Offset(2, 2),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Transform.rotate(
-              angle: -pi / 4,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  'Unknown Bridge',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
-        ),
+    bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
 
-        // Animate cards moving to recipients
-        ...animatingCards.map((animCard) {
-          return AnimatedBuilder(
-            animation: animCard.animation,
-            builder: (context, child) {
-              return Align(
-                alignment: animCard.animation.value,
-                child: AnimatedBuilder(
-                  animation: animCard.flipAnimation,
-                  builder: (context, child) {
-                    final isFlipped = animCard.flipAnimation.value >= pi / 2;
-                    return Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.rotationY(
-                        animCard.flipAnimation.value,
-                      ),
-                      child: Container(
-                        width: 45,
-                        height: 65,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 4,
-                              offset: Offset(2, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child:
-                              isFlipped
-                                  ? Text(
-                                    animCard.card, // Show card face
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                  : _buildCardBack(), // Show card back
-                        ),
-                      ),
-                    );
-                  },
+    return GestureDetector(
+      onTap: (isCurrentPlayerTurn && !_isDrawing) ? _handleDeckTap : null,
+      child: Transform.scale(
+        scale:
+            _deckScaleController?.value ?? 1.0, // Directly use controller value
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 45,
+              height: 65,
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [Colors.redAccent, Colors.orangeAccent],
+                  center: Alignment.center,
+                  radius: 0.75,
                 ),
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black45,
+                    blurRadius: 4,
+                    offset: Offset(2, 2),
+                  ),
+                ],
+                border:
+                    (isCurrentPlayerTurn && !_isDrawing)
+                        ? Border.all(color: Colors.yellowAccent, width: 5)
+                        : null,
+              ),
+              child: Center(
+                child:
+                    _drawnCard != null && _isCardFlipped
+                        ? _buildCardFace(_drawnCard!)
+                        : _buildCardBack(),
+              ),
+            ),
+
+            // Animating Cards (during distribution)
+            ...animatingCards.map((animCard) {
+              return AnimatedBuilder(
+                animation: animCard.animation,
+                builder: (context, child) {
+                  return Align(
+                    alignment: animCard.animation.value,
+                    child: AnimatedBuilder(
+                      animation: animCard.flipAnimation,
+                      builder: (context, child) {
+                        final isFlipped =
+                            animCard.flipAnimation.value >= pi / 2;
+                        return Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.rotationY(
+                            animCard.flipAnimation.value,
+                          ),
+                          child: Container(
+                            width: 45,
+                            height: 65,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black26,
+                                  blurRadius: 4,
+                                  offset: Offset(2, 2),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child:
+                                  isFlipped
+                                      ? Text(
+                                        animCard.card,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
+                                      : _buildCardBack(),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
               );
-            },
-          );
-        }),
-      ],
+            }).toList(),
+          ],
+        ),
+      ),
     );
+  }
+
+  void _handleDeckTap() {
+    if (_isDrawing) return; // Prevent multiple taps
+    _isDrawing = true;
+
+    print("🎯 (DEBUG) Deck tapped by $currentPlayer");
+
+    // Disable deck interactivity immediately
+    setState(() {}); // Triggers rebuild to disable tap
+
+    // Notify server to start the draw
+    widget.socket.emit('draw_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+    });
+
+    // Start the scaling animation
+    _startCardDrawAnimation();
+  }
+
+  void _startCardDrawAnimation() {
+    print("🎬 (DEBUG) Starting enhanced draw animation");
+
+    _deckScaleController = AnimationController(
+      duration: Duration(milliseconds: 800),
+      vsync: this,
+      lowerBound: 1.0, // Start at original size
+      upperBound: 3.0, // Scale up to 3x
+    );
+
+    _deckScaleController!.addListener(() {
+      setState(() {}); // Trigger UI rebuild with new scale
+    });
+
+    _deckScaleController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        print("✅ (DEBUG) Scaling complete. Starting flip...");
+        _flipDrawnCard(); // Start flip after scaling completes
+      }
+    });
+
+    _deckScaleController!.forward(); // Start the scaling animation
   }
 
   @override
@@ -782,7 +887,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
+                    color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
@@ -791,7 +896,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                       Text(
                         currentTurnStatus,
                         style: TextStyle(
-                          color: Colors.white,
+                          color: Colors.yellowAccent,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
@@ -825,7 +930,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.yellowAccent.withOpacity(0.9),
+                        color: Colors.yellowAccent.withValues(alpha: 0.9),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
