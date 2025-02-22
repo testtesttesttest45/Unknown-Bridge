@@ -15,6 +15,7 @@ const io = socketIo(server, {
 const lobbies = {};
 const ongoingDistributions = {};
 let totalCardsInDeck = 0;
+const acknowledgedClientsPerLobby = {};
 
 // Function to log active lobbies
 const logActiveLobbies = () => {
@@ -411,25 +412,42 @@ io.on('connection', (socket) => {
         console.log(`🎉 (SERVER) The winner of the wheelspin is: ${winner}`);
         console.log(`🔄 (SERVER) New turn order: ${turnOrder.join(', ')}`);
 
+        // Initialize acknowledgment tracking BEFORE broadcasting
+        acknowledgedClientsPerLobby[lobbyCode] = new Set();
+
+        // Emit wheelspin_result to all clients
         io.to(lobbyCode).emit('wheelspin_result', {
             winner,
             players,
             turnOrder
         });
-
-        const acknowledgedClients = new Set();
-
-        socket.on('wheelspin_received', ({ playerName }) => {
-            acknowledgedClients.add(playerName);
-            console.log(`✅ (SERVER) ${playerName} acknowledged wheelspin_result`);
-
-            if (acknowledgedClients.size === players.length) {
-                console.log(`✅ (SERVER) All players acknowledged the wheelspin.`);
-                io.to(lobbyCode).emit('all_acknowledged', { winner });
-            }
-        });
     });
 
+    // ✅ Move acknowledgment listener globally
+    socket.on('wheelspin_received', ({ playerName, lobbyCode }) => {
+        // Check if acknowledgment tracking exists
+        if (!acknowledgedClientsPerLobby[lobbyCode]) {
+            console.log(`⚠️ (SERVER) No active wheelspin acknowledgment for lobby ${lobbyCode}`);
+            return;
+        }
+
+        // Add player to acknowledged set
+        acknowledgedClientsPerLobby[lobbyCode].add(playerName);
+        console.log(`✅ (SERVER) ${playerName} acknowledged wheelspin_result`);
+
+        const totalPlayers = lobbies[lobbyCode]?.players.length || 0;
+
+        // When all players have acknowledged
+        if (acknowledgedClientsPerLobby[lobbyCode].size === totalPlayers) {
+            console.log(`✅ (SERVER) All players acknowledged the wheelspin.`);
+            io.to(lobbyCode).emit('all_acknowledged', {
+                winner: lobbies[lobbyCode].currentWinner
+            });
+
+            // Clean up acknowledgment tracking
+            delete acknowledgedClientsPerLobby[lobbyCode];
+        }
+    });
 
     // Handle state synchronization requests
     socket.on('request_current_state', (data) => {

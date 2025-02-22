@@ -230,8 +230,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           'lobbyCode': widget.lobbyCode,
         });
 
+        // ✅ Use localWinner to avoid timing issues
+        final localWinner = winner;
+
         // Proceed with wheel animation
-        int winnerIndex = players.indexOf(winner);
+        int winnerIndex = players.indexOf(localWinner);
         double segmentAngle = (2 * pi) / players.length;
         double targetRotation = (2 * pi * 5) - (segmentAngle * winnerIndex);
 
@@ -255,12 +258,14 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
         spinController.addStatusListener((status) async {
           if (status == AnimationStatus.completed) {
-            print("✅ Wheel spin complete on this client. Winner: $wheelWinner");
+            print("✅ Wheel spin complete on this client. Winner: $localWinner");
 
             setState(() {
               isWheelSpinning = false;
               showWinnerText = true;
-              showWinnerHighlight = true; // ✅ Trigger highlight
+              showWinnerHighlight =
+                  true; // ✅ Trigger highlight using localWinner
+              wheelWinner = localWinner; // ✅ Explicitly set after animation
             });
 
             // 🔥 Add 2-second delay before hiding the wheel
@@ -270,7 +275,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               setState(() {
                 showWheel = false; // Hide the wheel after delay
                 print(
-                  "🎯 Wheel closed after delay. Highlighting winner: $wheelWinner",
+                  "🎯 Wheel closed after delay. Highlighting winner: $localWinner",
                 );
               });
             }
@@ -284,6 +289,20 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         // 🔄 Request state sync if invalid data
         widget.socket.emit('request_current_state', {
           'lobbyCode': widget.lobbyCode,
+        });
+      }
+    });
+
+    widget.socket.on('all_acknowledged', (data) {
+      final confirmedWinner = data['winner'];
+      print(
+        "✅ (CLIENT) All players acknowledged. Confirmed winner: $confirmedWinner",
+      );
+
+      if (confirmedWinner != null && mounted) {
+        setState(() {
+          wheelWinner = confirmedWinner;
+          showWinnerHighlight = true;
         });
       }
     });
