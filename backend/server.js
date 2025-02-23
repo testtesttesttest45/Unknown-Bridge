@@ -519,7 +519,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('discard_card', (data) => {
-        const { lobbyCode, playerName, card } = data;
+        const { lobbyCode, playerName, card, animateReverse } = data;
 
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
@@ -535,12 +535,20 @@ io.on('connection', (socket) => {
 
         lobbies[lobbyCode].discardedCards.push({ playerName, card });
 
-        // Broadcast to other players that a card was discarded (optional)
+        // Broadcast to all players about the discarded card
         io.to(lobbyCode).emit('card_discarded', {
             playerName,
             card,
         });
+
+        // Trigger reverse scale animation for all clients
+        if (animateReverse) {
+            io.to(lobbyCode).emit('reset_deck_scale', {
+                playerName: playerName
+            });
+        }
     });
+
 
     socket.on('reset_deck_scale', (data) => {
         const lobbyCode = data.lobbyCode;

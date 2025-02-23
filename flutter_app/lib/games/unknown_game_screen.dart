@@ -428,21 +428,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     widget.socket.on('reset_deck_scale', (data) {
       print("🔄 (CLIENT) Received reset_deck_scale broadcast");
 
-      // ✅ Check if data is valid
-      if (data == null || !data.containsKey('playerName')) {
-        print("⚠️ (ERROR) Invalid reset_deck_scale payload: $data");
-        return; // Exit if data is invalid
-      }
-
       final discarder = data['playerName'];
 
-      // Ensure only non-discarders process this
-      if (discarder != currentPlayer) {
-        print("🃏 (CLIENT) Non-discarder detected. Resetting deck scale.");
-        _safeReverseDeckScale();
-      } else {
-        print("🃏 (CLIENT) Discarder detected. Already handled locally.");
-      }
+      // Play reverse animation for ALL clients
+      _safeReverseDeckScale();
     });
   }
 
@@ -1098,23 +1087,17 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     print("🗑️ (CLIENT) Discarding card: $_drawnCard");
 
-    // Send discard event to server
+    // Send discard event to server with a flag to trigger animation
     widget.socket.emit('discard_card', {
       'lobbyCode': widget.lobbyCode,
       'playerName': currentPlayer,
       'card': _drawnCard,
+      'animateReverse': true, // New flag to trigger reverse animation
     });
 
-    // 🔥 Emit reset_deck_scale to ALL players including self
-    widget.socket.emit('reset_deck_scale', {
-      'lobbyCode': widget.lobbyCode,
-      'playerName': currentPlayer,
-    });
-
-    // Locally reverse the scale for discarder
+    // Clear the drawn card and reset UI AFTER reverse animation
     _safeReverseDeckScale();
 
-    // Clear the drawn card and reset UI
     setState(() {
       _drawnCard = null; // Clear drawn card
       showCardEffect = false; // Hide glowing border
@@ -1126,9 +1109,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
   @override
   Widget build(BuildContext context) {
-    print(
-      "🔄 Rebuilding UI | Current Winner: $wheelWinner | Highlight: $showWinnerHighlight",
-    );
+    // print(
+    //   "🔄 Rebuilding UI | Current Winner: $wheelWinner | Highlight: $showWinnerHighlight",
+    // );
 
     return Scaffold(
       backgroundColor: Colors.blueGrey[900],
