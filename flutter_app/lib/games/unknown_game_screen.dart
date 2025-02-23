@@ -44,6 +44,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   String? _drawnCard; // Holds the drawn card for the current player
   bool _isCardFlipped = false; // Tracks if the card has been flipped
   AnimationController? _deckScaleController; // For scaling animation
+  late AnimationController cardEffectController;
+  late Animation<double> cardGlowAnimation;
+  bool showCardEffect = false;
 
   @override
   void initState() {
@@ -59,6 +62,16 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     logMessageFadeAnimation = CurvedAnimation(
       parent: logMessageController,
       curve: Curves.easeInOut,
+    );
+
+    // Initialize card effect animation (glow)
+    cardEffectController = AnimationController(
+      duration: Duration(seconds: 2),
+      vsync: this,
+    )..repeat(reverse: true); // Looping glow effect
+
+    cardGlowAnimation = Tween<double>(begin: 1.0, end: 1.5).animate(
+      CurvedAnimation(parent: cardEffectController, curve: Curves.easeInOut),
     );
 
     // 🔥 Request current game state after a slight delay
@@ -88,6 +101,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       card.dispose();
     }
     logMessageController.dispose();
+    cardEffectController.dispose();
     super.dispose();
   }
 
@@ -405,10 +419,14 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     controller.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         controller.dispose();
-        // Do NOT reset _isDrawing here; let the server trigger the next draw
         _deckScaleController?.dispose();
 
-        // ✅ Show log message for the current player after flip is done
+        // ✅ Trigger the glowing card effect for the current player
+        setState(() {
+          showCardEffect = true; // Show the glowing effect
+        });
+
+        // ✅ Show log message
         _showLogMessage("Discard or Replace your card!");
       }
     });
@@ -727,16 +745,14 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           AnimatedBuilder(
             animation: _deckScaleController ?? AlwaysStoppedAnimation(0),
             builder: (context, child) {
-              // Apply scale (up to 2.5x) and flip together
               final scale =
                   1.0 +
                   ((_deckScaleController?.value ?? (_isCardFlipped ? 1.0 : 0)) *
-                      1.5); // Scale up to 2.5x
+                      1.5);
               final flip =
                   (_deckScaleController?.value ??
                       (_isCardFlipped ? 1.0 : 0.0)) *
                   pi;
-
               final isFlipped = flip >= (pi / 2);
 
               return Transform(
@@ -745,43 +761,73 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     Matrix4.identity()
                       ..scale(scale)
                       ..rotateY(flip),
-                child: Container(
-                  width: 45,
-                  height: 65,
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      colors: [Colors.redAccent, Colors.orangeAccent],
-                      center: Alignment.center,
-                      radius: 0.75,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black45,
-                        blurRadius: 4,
-                        offset: Offset(2, 2),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Glowing effect around the card (only for the player who drew)
+                    if (showCardEffect)
+                      AnimatedBuilder(
+                        animation: cardGlowAnimation,
+                        builder: (context, child) {
+                          return Container(
+                            width: 60 * cardGlowAnimation.value,
+                            height: 80 * cardGlowAnimation.value,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.rectangle,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.yellowAccent.withOpacity(0.7),
+                                  blurRadius: 20,
+                                  spreadRadius: 5,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                    ],
-                    border:
-                        (isCurrentPlayerTurn && !_isDrawing)
-                            ? Border.all(color: Colors.yellowAccent, width: 5)
-                            : null,
-                  ),
-                  child: Center(
-                    child:
-                        isFlipped
-                            ? Transform(
-                              alignment: Alignment.center,
-                              transform: Matrix4.rotationY(
-                                pi,
-                              ), // Flip content back to normal
-                              child:
-                                  _drawnCard != null
-                                      ? _buildCardFace(_drawnCard!)
-                                      : _buildCardBack(), // Fallback to back if no drawn card
-                            )
-                            : _buildCardBack(), // Ensure back stays correctly oriented
-                  ),
+
+                    // The actual card (face-up or back)
+                    Container(
+                      width: 45,
+                      height: 65,
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          colors: [Colors.redAccent, Colors.orangeAccent],
+                          center: Alignment.center,
+                          radius: 0.75,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black45,
+                            blurRadius: 4,
+                            offset: Offset(2, 2),
+                          ),
+                        ],
+                        border:
+                            (isCurrentPlayerTurn && !_isDrawing)
+                                ? Border.all(
+                                  color: Colors.yellowAccent,
+                                  width: 5,
+                                )
+                                : null,
+                      ),
+                      child: Center(
+                        child:
+                            isFlipped
+                                ? Transform(
+                                  alignment: Alignment.center,
+                                  transform: Matrix4.rotationY(pi),
+                                  child:
+                                      _drawnCard != null
+                                          ? _buildCardFace(_drawnCard!)
+                                          : _buildCardBack(),
+                                )
+                                : _buildCardBack(),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -822,9 +868,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                 isFlipped
                                     ? Transform(
                                       alignment: Alignment.center,
-                                      transform: Matrix4.rotationY(
-                                        pi,
-                                      ), // Flip content back to normal
+                                      transform: Matrix4.rotationY(pi),
                                       child: Text(
                                         animCard.card,
                                         style: TextStyle(
@@ -833,7 +877,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                         ),
                                       ),
                                     )
-                                    : _buildCardBack(), // Back of animating cards with proper text rotation
+                                    : _buildCardBack(),
                           ),
                         ),
                       );
