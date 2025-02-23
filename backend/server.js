@@ -520,28 +520,40 @@ io.on('connection', (socket) => {
 
     socket.on('discard_card', (data) => {
         const { lobbyCode, playerName, card } = data;
-      
+
         if (!lobbies[lobbyCode]) {
-          console.log(`❌ Lobby ${lobbyCode} does not exist.`);
-          return;
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
         }
-      
+
         console.log(`🗑️ (SERVER) ${playerName} discarded card: ${card}`);
-      
+
         // Store discarded cards in the lobby state
         if (!lobbies[lobbyCode].discardedCards) {
-          lobbies[lobbyCode].discardedCards = [];
+            lobbies[lobbyCode].discardedCards = [];
         }
-      
+
         lobbies[lobbyCode].discardedCards.push({ playerName, card });
-      
+
         // Broadcast to other players that a card was discarded (optional)
         io.to(lobbyCode).emit('card_discarded', {
-          playerName,
-          card,
+            playerName,
+            card,
         });
-      });
-      
+    });
+
+    socket.on('reset_deck_scale', (data) => {
+        const lobbyCode = data.lobbyCode;
+        const playerName = data.playerName; // Extract player name from incoming data
+
+        // ✅ Emit the reset_deck_scale event with playerName in payload
+        io.to(lobbyCode).emit('reset_deck_scale', {
+            playerName: playerName
+        });
+    });
+
+
+
 
 });
 

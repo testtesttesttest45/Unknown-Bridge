@@ -103,8 +103,12 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     }
     logMessageController.dispose();
     cardEffectController.dispose();
-    _deckScaleController?.dispose();
-    _deckScaleController = null;
+
+    if (_deckScaleController != null) {
+      _deckScaleController!.dispose();
+      _deckScaleController = null; // Nullify after disposal
+    }
+
     super.dispose();
   }
 
@@ -419,6 +423,26 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       }
 
       _showLogMessage("$discardedBy discarded $discardedCard");
+    });
+
+    widget.socket.on('reset_deck_scale', (data) {
+      print("🔄 (CLIENT) Received reset_deck_scale broadcast");
+
+      // ✅ Check if data is valid
+      if (data == null || !data.containsKey('playerName')) {
+        print("⚠️ (ERROR) Invalid reset_deck_scale payload: $data");
+        return; // Exit if data is invalid
+      }
+
+      final discarder = data['playerName'];
+
+      // Ensure only non-discarders process this
+      if (discarder != currentPlayer) {
+        print("🃏 (CLIENT) Non-discarder detected. Resetting deck scale.");
+        _safeReverseDeckScale();
+      } else {
+        print("🃏 (CLIENT) Discarder detected. Already handled locally.");
+      }
     });
   }
 
@@ -1005,7 +1029,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     _deckScaleController!.addListener(() {
       setState(() {
-        // Flip halfway through the animation
         _isCardFlipped = _deckScaleController!.value >= 0.5;
       });
     });
@@ -1022,6 +1045,54 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     _deckScaleController!.forward();
   }
 
+  void _safeReverseDeckScale() {
+    try {
+      // Check if the controller exists and is not disposed
+      if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
+        print(
+          "⚠️ (DEBUG) _deckScaleController is null or not animating. Creating new instance.",
+        );
+
+        _deckScaleController = AnimationController(
+          duration: Duration(milliseconds: 800),
+          vsync: this,
+        );
+      }
+
+      // Ensure controller is active before reversing
+      if (_deckScaleController!.isAnimating ||
+          _deckScaleController!.isCompleted) {
+        print("⚠️ (DEBUG) Starting reverse on deck scale controller.");
+
+        _deckScaleController!.reverse().whenComplete(() {
+          if (mounted) {
+            setState(() {
+              _deckScaleController!.reset();
+              print("✅ (DEBUG) Deck scale reversed and reset.");
+            });
+          }
+        });
+      } else {
+        print(
+          "⚠️ (DEBUG) _deckScaleController is inactive. Setting value and reversing.",
+        );
+        _deckScaleController!.value = 1.0; // Ensure it's fully scaled
+        _deckScaleController!.reverse().whenComplete(() {
+          if (mounted) {
+            setState(() {
+              _deckScaleController!.reset();
+              print("✅ (DEBUG) Deck scale reversed and reset.");
+            });
+          }
+        });
+      }
+    } catch (e) {
+      print(
+        "⚠️ (ERROR) Error while reversing/resetting _deckScaleController: $e",
+      );
+    }
+  }
+
   void _handleDiscard() {
     if (_drawnCard == null) return;
 
@@ -1034,7 +1105,16 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       'card': _drawnCard,
     });
 
-    // Clear the drawn card and reset UI, but DO NOT add to discardedCards here
+    // 🔥 Emit reset_deck_scale to ALL players including self
+    widget.socket.emit('reset_deck_scale', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+    });
+
+    // Locally reverse the scale for discarder
+    _safeReverseDeckScale();
+
+    // Clear the drawn card and reset UI
     setState(() {
       _drawnCard = null; // Clear drawn card
       showCardEffect = false; // Hide glowing border
