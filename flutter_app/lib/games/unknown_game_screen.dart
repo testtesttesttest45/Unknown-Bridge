@@ -243,22 +243,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         setState(() {
           players = serverPlayers;
           isWheelSpinning = true;
-          wheelWinner = winner; // ✅ Set the winner for all clients
+          wheelWinner = winner;
           showWinnerText = false;
           showWheel = true;
           showWinnerHighlight = false;
         });
 
-        // ✅ Emit acknowledgment back to the server
         widget.socket.emit('wheelspin_received', {
           'playerName': currentPlayer,
           'lobbyCode': widget.lobbyCode,
         });
 
-        // ✅ Use localWinner to avoid timing issues
         final localWinner = winner;
 
-        // Proceed with wheel animation
         int winnerIndex = players.indexOf(localWinner);
         double segmentAngle = (2 * pi) / players.length;
         double targetRotation = (2 * pi * 5) - (segmentAngle * winnerIndex);
@@ -291,30 +288,29 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               showWinnerHighlight = true;
               wheelWinner = localWinner;
 
-              // ✅ Update current turn
               currentTurnStatus = "Current turn: $localWinner";
 
-              // ✅ Update next turn based on turnOrder
               int winnerIndex = turnOrder.indexOf(localWinner);
               int nextIndex = (winnerIndex + 1) % turnOrder.length;
               nextTurnPlayer = turnOrder[nextIndex];
-
-              // ✅ Show log message
-              _showLogMessage("The wheelspin winner is $localWinner");
             });
 
-            // 🔥 Add 2-second delay before hiding the wheel
+            // ✅ First, show the wheelspin winner to everyone
+            _showLogMessage("The wheelspin winner is $localWinner");
+
+            // 🔥 Add 2-second delay before hiding the wheel and prompting the winner
             await Future.delayed(Duration(seconds: 2));
 
             if (mounted) {
               setState(() {
-                showWheel = false; // Hide the wheel after delay
-                print(
-                  "🎯 Wheel closed after delay. Highlighting winner: $localWinner",
-                );
-                currentTurnStatus = "Current turn: $localWinner";
-                _showLogMessage("The wheelspin winner is $localWinner");
+                showWheel = false;
+                print("🎯 Wheel closed. Highlighting winner: $localWinner");
               });
+
+              // ✅ Now, only prompt the winner to draw a card
+              if (currentPlayer == localWinner) {
+                _showLogMessage("Please draw a card from the deck");
+              }
             }
           }
         });
@@ -323,7 +319,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       } else {
         print("⚠️ (ERROR) Invalid winner data received: $data");
 
-        // 🔄 Request state sync if invalid data
         widget.socket.emit('request_current_state', {
           'lobbyCode': widget.lobbyCode,
         });
@@ -412,11 +407,25 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         controller.dispose();
         // Do NOT reset _isDrawing here; let the server trigger the next draw
         _deckScaleController?.dispose();
+
+        // ✅ Show log message for the current player after flip is done
+        _showLogMessage("Discard or Replace your card!");
       }
     });
   }
 
   void _showLogMessage(String message) async {
+    // Clear existing log message first
+    if (logMessage != null) {
+      await logMessageController.reverse(); // Fade out existing message
+      if (mounted) {
+        setState(() {
+          logMessage = null; // Clear the message
+        });
+      }
+    }
+
+    // Show new log message
     setState(() {
       logMessage = message;
     });
@@ -425,7 +434,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     await logMessageController.forward();
 
     // Wait 3 seconds while message is visible
-    await Future.delayed(Duration(seconds: 3));
+    await Future.delayed(Duration(seconds: 5));
 
     // Fade out
     await logMessageController.reverse();
@@ -876,13 +885,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     _deckScaleController!.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         print("✅ (DEBUG) Scaling and flipping complete.");
-        // Keep the card face-up and scaled after the animation
         setState(() {
           _isCardFlipped = true;
         });
-        // Do NOT dispose the controller immediately to prevent flickering
-        //_deckScaleController?.dispose();
-        //_deckScaleController = null;
       }
     });
 
