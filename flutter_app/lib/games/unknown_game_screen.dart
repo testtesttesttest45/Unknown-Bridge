@@ -780,19 +780,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   /// **Builds deck at the center with animating cards**
+  /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
     bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      alignment: Alignment.center,
       children: [
-        // Center Deck
-        GestureDetector(
-          onTap: (isCurrentPlayerTurn && !_isDrawing) ? _handleDeckTap : null,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              AnimatedBuilder(
+        // Center Deck and Discard Pile in a Row
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Center Deck
+            GestureDetector(
+              onTap:
+                  (isCurrentPlayerTurn && !_isDrawing) ? _handleDeckTap : null,
+              child: AnimatedBuilder(
                 animation: _deckScaleController ?? AlwaysStoppedAnimation(0),
                 builder: (context, child) {
                   final scale =
@@ -884,43 +887,94 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                   );
                 },
               ),
-            ],
-          ),
-        ),
-
-        SizedBox(width: 20), // Space between deck and discard pile
-        // Discarded Cards Pile
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              "Discard Pile",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
             ),
-            SizedBox(height: 8),
-            discardedCards.isNotEmpty
-                ? _buildCardFace(
-                  discardedCards.last,
-                ) // Show the top discarded card
-                : Container(
-                  width: 45,
-                  height: 65,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white38),
-                  ),
-                  child: Center(
-                    child: Text(
-                      "Empty",
-                      style: TextStyle(color: Colors.white38, fontSize: 12),
-                    ),
+
+            SizedBox(width: 20), // Space between deck and discard pile
+            // Discarded Cards Pile (Fixed next to deck)
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Discard Pile",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+                SizedBox(height: 8),
+                discardedCards.isNotEmpty
+                    ? _buildCardFace(
+                      discardedCards.last,
+                    ) // Show top discarded card
+                    : Container(
+                      width: 45,
+                      height: 65,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white38),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "Empty",
+                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      ),
+                    ),
+              ],
+            ),
           ],
         ),
+
+        // Animate cards moving to recipients
+        ...animatingCards.map((animCard) {
+          return AnimatedBuilder(
+            animation: animCard.animation,
+            builder: (context, child) {
+              return Align(
+                alignment: animCard.animation.value,
+                child: AnimatedBuilder(
+                  animation: animCard.flipAnimation,
+                  builder: (context, child) {
+                    final isFlipped = animCard.flipAnimation.value >= pi / 2;
+                    return Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.rotationY(
+                        animCard.flipAnimation.value,
+                      ),
+                      child: Container(
+                        width: 45,
+                        height: 65,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(2, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child:
+                              isFlipped
+                                  ? Text(
+                                    animCard.card, // Show card face
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                  : _buildCardBack(), // Show card back
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          );
+        }).toList(),
       ],
     );
   }
