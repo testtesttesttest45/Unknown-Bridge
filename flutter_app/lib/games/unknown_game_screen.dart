@@ -632,7 +632,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Transform.rotate(
-            angle: -pi / 4,
+            angle: -pi / 4, // Restore the diagonal rotation
             child: Text(
               'Unknown Bridge',
               style: TextStyle(
@@ -712,95 +712,129 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     return GestureDetector(
       onTap: (isCurrentPlayerTurn && !_isDrawing) ? _handleDeckTap : null,
-      child: Transform.scale(
-        scale:
-            _deckScaleController?.value ?? 1.0, // Directly use controller value
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 45,
-              height: 65,
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  colors: [Colors.redAccent, Colors.orangeAccent],
-                  center: Alignment.center,
-                  radius: 0.75,
-                ),
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black45,
-                    blurRadius: 4,
-                    offset: Offset(2, 2),
-                  ),
-                ],
-                border:
-                    (isCurrentPlayerTurn && !_isDrawing)
-                        ? Border.all(color: Colors.yellowAccent, width: 5)
-                        : null,
-              ),
-              child: Center(
-                child:
-                    _drawnCard != null && _isCardFlipped
-                        ? _buildCardFace(_drawnCard!)
-                        : _buildCardBack(),
-              ),
-            ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _deckScaleController ?? AlwaysStoppedAnimation(0),
+            builder: (context, child) {
+              // Apply scale (up to 2.5x) and flip together
+              final scale =
+                  1.0 +
+                  ((_deckScaleController?.value ?? (_isCardFlipped ? 1.0 : 0)) *
+                      1.5); // Scale up to 2.5x
+              final flip =
+                  (_deckScaleController?.value ??
+                      (_isCardFlipped ? 1.0 : 0.0)) *
+                  pi;
 
-            // Animating Cards (during distribution)
-            ...animatingCards.map((animCard) {
-              return AnimatedBuilder(
-                animation: animCard.animation,
-                builder: (context, child) {
-                  return Align(
-                    alignment: animCard.animation.value,
-                    child: AnimatedBuilder(
-                      animation: animCard.flipAnimation,
-                      builder: (context, child) {
-                        final isFlipped =
-                            animCard.flipAnimation.value >= pi / 2;
-                        return Transform(
-                          alignment: Alignment.center,
-                          transform: Matrix4.rotationY(
-                            animCard.flipAnimation.value,
-                          ),
-                          child: Container(
-                            width: 45,
-                            height: 65,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(2, 2),
-                                ),
-                              ],
-                            ),
-                            child: Center(
+              final isFlipped = flip >= (pi / 2);
+
+              return Transform(
+                alignment: Alignment.center,
+                transform:
+                    Matrix4.identity()
+                      ..scale(scale)
+                      ..rotateY(flip),
+                child: Container(
+                  width: 45,
+                  height: 65,
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      colors: [Colors.redAccent, Colors.orangeAccent],
+                      center: Alignment.center,
+                      radius: 0.75,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black45,
+                        blurRadius: 4,
+                        offset: Offset(2, 2),
+                      ),
+                    ],
+                    border:
+                        (isCurrentPlayerTurn && !_isDrawing)
+                            ? Border.all(color: Colors.yellowAccent, width: 5)
+                            : null,
+                  ),
+                  child: Center(
+                    child:
+                        isFlipped
+                            ? Transform(
+                              alignment: Alignment.center,
+                              transform: Matrix4.rotationY(
+                                pi,
+                              ), // Flip content back to normal
                               child:
-                                  isFlipped
-                                      ? Text(
+                                  _drawnCard != null
+                                      ? _buildCardFace(_drawnCard!)
+                                      : _buildCardBack(), // Fallback to back if no drawn card
+                            )
+                            : _buildCardBack(), // Ensure back stays correctly oriented
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Animating Cards (during distribution)
+          ...animatingCards.map((animCard) {
+            return AnimatedBuilder(
+              animation: animCard.animation,
+              builder: (context, child) {
+                return Align(
+                  alignment: animCard.animation.value,
+                  child: AnimatedBuilder(
+                    animation: animCard.flipAnimation,
+                    builder: (context, child) {
+                      final flipValue = animCard.flipAnimation.value;
+                      final isFlipped = flipValue >= pi / 2;
+
+                      return Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.rotationY(flipValue),
+                        child: Container(
+                          width: 45,
+                          height: 65,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 4,
+                                offset: Offset(2, 2),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child:
+                                isFlipped
+                                    ? Transform(
+                                      alignment: Alignment.center,
+                                      transform: Matrix4.rotationY(
+                                        pi,
+                                      ), // Flip content back to normal
+                                      child: Text(
                                         animCard.card,
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.bold,
                                         ),
-                                      )
-                                      : _buildCardBack(),
-                            ),
+                                      ),
+                                    )
+                                    : _buildCardBack(), // Back of animating cards with proper text rotation
                           ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              );
-            }).toList(),
-          ],
-        ),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            );
+          }).toList(),
+        ],
       ),
     );
   }
@@ -830,22 +864,29 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     _deckScaleController = AnimationController(
       duration: Duration(milliseconds: 800),
       vsync: this,
-      lowerBound: 1.0, // Start at original size
-      upperBound: 3.0, // Scale up to 3x
     );
 
     _deckScaleController!.addListener(() {
-      setState(() {}); // Trigger UI rebuild with new scale
+      setState(() {
+        // Flip halfway through the animation
+        _isCardFlipped = _deckScaleController!.value >= 0.5;
+      });
     });
 
     _deckScaleController!.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        print("✅ (DEBUG) Scaling complete. Starting flip...");
-        _flipDrawnCard(); // Start flip after scaling completes
+        print("✅ (DEBUG) Scaling and flipping complete.");
+        // Keep the card face-up and scaled after the animation
+        setState(() {
+          _isCardFlipped = true;
+        });
+        // Do NOT dispose the controller immediately to prevent flickering
+        //_deckScaleController?.dispose();
+        //_deckScaleController = null;
       }
     });
 
-    _deckScaleController!.forward(); // Start the scaling animation
+    _deckScaleController!.forward();
   }
 
   @override
