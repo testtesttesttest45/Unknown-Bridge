@@ -314,6 +314,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               currentTurnStatus = "Current turn: $localWinner";
 
               _canInteractWithDeck = true;
+              _showSkipButton = true;
 
               int winnerIndex = turnOrder.indexOf(localWinner);
               int nextIndex = (winnerIndex + 1) % turnOrder.length;
@@ -465,6 +466,15 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             _showLogMessage("It's your turn! Draw a card.");
           }
         });
+      }
+    });
+
+    widget.socket.on('show_log_message', (data) {
+      final message = data['message'];
+
+      if (message != null && mounted) {
+        print("📢 (CLIENT) Log Message: $message");
+        _showLogMessage(message); // 🔥 Show message to all players
       }
     });
   }
@@ -1092,6 +1102,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     try {
       setState(() {
         _canInteractWithDeck = false; // Ensure deck remains non-interactive
+        _showSkipButton = false;
       });
 
       if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
@@ -1115,6 +1126,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 if (mounted) {
                   setState(() {
                     _canInteractWithDeck = true;
+                    _showSkipButton = true;
                     print("✅ (DEBUG) Deck interaction restored.");
                   });
                 }
@@ -1136,6 +1148,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 if (mounted) {
                   setState(() {
                     _canInteractWithDeck = true;
+                    _showSkipButton = true;
                     print("✅ (DEBUG) Deck interaction restored.");
                   });
                 }
@@ -1181,6 +1194,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
   @override
   Widget build(BuildContext context) {
+    bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
+    bool canTapDeck =
+        isCurrentPlayerTurn && !_isDrawing && _canInteractWithDeck;
     // print(
     //   "🔄 Rebuilding UI | Current Winner: $wheelWinner | Highlight: $showWinnerHighlight",
     // );
@@ -1437,8 +1453,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
+          
           // Show Skip Turn button before drawing, then show Discard button after drawing
-          if (currentPlayer == wheelWinner)
+          if (canTapDeck)
             Positioned(
               bottom: 150,
               left: MediaQuery.of(context).size.width / 2 - 50,
