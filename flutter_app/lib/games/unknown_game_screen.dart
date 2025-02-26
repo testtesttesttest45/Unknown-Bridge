@@ -49,6 +49,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   bool showCardEffect = false;
   List<Map<String, dynamic>> discardedCards = [];
   bool _canInteractWithDeck = false; // Controls deck interactivity
+  bool _showSkipButton = false;
 
   @override
   void initState() {
@@ -454,8 +455,12 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           nextTurnPlayer = upcomingPlayer;
 
           _isDrawing = false; // ✅ Reset drawing state for new turn
+          _drawnCard = null; // Reset drawn card
+          showCardEffect = false; // Hide discard effect
+          _showSkipButton =
+              newCurrentPlayer ==
+              currentPlayer; // Show Skip Turn button only for current player
 
-          // If it's this client's turn, show a message
           if (currentPlayer == newCurrentPlayer) {
             _showLogMessage("It's your turn! Draw a card.");
           }
@@ -499,37 +504,43 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
   }
 
-  void _showLogMessage(String message) async {
-    // Clear existing log message first
-    if (logMessage != null) {
-      await logMessageController.reverse(); // Fade out existing message
-      if (mounted) {
-        setState(() {
-          logMessage = null; // Clear the message
-        });
-      }
-    }
+  void _showLogMessage(String message) {
+    // Cancel any ongoing animations immediately
+    logMessageController.stop();
+    logMessageController.reset();
 
-    // Show new log message
-    setState(() {
-      logMessage = message;
-    });
-
-    // Start fade-in
-    await logMessageController.forward();
-
-    // Wait 3 seconds while message is visible
-    await Future.delayed(Duration(seconds: 5));
-
-    // Fade out
-    await logMessageController.reverse();
-
-    // Clear message after fade-out
+    // Clear the existing message first
     if (mounted) {
       setState(() {
         logMessage = null;
       });
     }
+
+    // Allow a small delay to ensure old message is fully removed
+    Future.delayed(Duration(milliseconds: 50), () {
+      if (mounted) {
+        setState(() {
+          logMessage = message;
+        });
+
+        // Start fade-in animation
+        logMessageController.forward();
+
+        // Start a new full 5-second timer
+        Future.delayed(Duration(seconds: 5), () {
+          if (mounted && logMessage == message) {
+            logMessageController.reverse().then((_) {
+              if (mounted && logMessage == message) {
+                setState(() {
+                  logMessage =
+                      null; // Clear the message only if it's still the same one
+                });
+              }
+            });
+          }
+        });
+      }
+    });
   }
 
   void _flipAllCards() async {
@@ -805,7 +816,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
     bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
-    bool canTapDeck = isCurrentPlayerTurn && !_isDrawing && _canInteractWithDeck;
+    bool canTapDeck =
+        isCurrentPlayerTurn && !_isDrawing && _canInteractWithDeck;
 
     return Stack(
       alignment: Alignment.center,
@@ -824,8 +836,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               ),
               child: Center(
                 child: GestureDetector(
-                  onTap:
-                      canTapDeck ? _handleDeckTap : null,
+                  onTap: canTapDeck ? _handleDeckTap : null,
                   child: AnimatedBuilder(
                     animation:
                         _deckScaleController ?? AlwaysStoppedAnimation(0),
@@ -894,9 +905,13 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                     offset: Offset(2, 2),
                                   ),
                                 ],
-                                border: canTapDeck
-                                  ? Border.all(color: Colors.yellowAccent, width: 5)
-                                  : null, 
+                                border:
+                                    canTapDeck
+                                        ? Border.all(
+                                          color: Colors.yellowAccent,
+                                          width: 5,
+                                        )
+                                        : null,
                               ),
                               child: Center(
                                 child:
@@ -1020,7 +1035,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     print("🎯 (DEBUG) Deck tapped by $currentPlayer");
 
-    setState(() {}); // Rebuild UI to reflect interaction blocking
+    setState(() {
+      _showSkipButton = false; // Hide Skip Turn button when a card is drawn
+    });
 
     widget.socket.emit('draw_card', {
       'lobbyCode': widget.lobbyCode,
@@ -1028,6 +1045,21 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
 
     _startCardDrawAnimation();
+  }
+
+  void _handleSkipTurn() {
+    print("🚫 (CLIENT) $currentPlayer skipped their turn");
+
+    setState(() {
+      _showSkipButton = false; // Hide Skip Turn button
+    });
+
+    widget.socket.emit('skip_turn', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+    });
+
+    _showLogMessage("$currentPlayer skipped their turn.");
   }
 
   void _startCardDrawAnimation() {
@@ -1057,61 +1089,67 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _safeReverseDeckScale() {
-  try {
-    setState(() {
-      _canInteractWithDeck = false;  // Ensure deck remains non-interactive
-    });
+    try {
+      setState(() {
+        _canInteractWithDeck = false; // Ensure deck remains non-interactive
+      });
 
-    if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
-      _deckScaleController = AnimationController(
-        duration: Duration(milliseconds: 800),
-        vsync: this,
+      if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
+        _deckScaleController = AnimationController(
+          duration: Duration(milliseconds: 800),
+          vsync: this,
+        );
+      }
+
+      if (_deckScaleController!.isAnimating ||
+          _deckScaleController!.isCompleted) {
+        print("⚠️ (DEBUG) Reversing deck scale animation.");
+
+        _deckScaleController!.reverse().whenComplete(() {
+          if (mounted) {
+            setState(() {
+              _deckScaleController!.reset();
+              _isDrawing = false; // Ensure drawing is fully reset
+              Future.delayed(Duration(milliseconds: 200), () {
+                // Small delay to sync animations
+                if (mounted) {
+                  setState(() {
+                    _canInteractWithDeck = true;
+                    print("✅ (DEBUG) Deck interaction restored.");
+                  });
+                }
+              });
+            });
+          }
+        });
+      } else {
+        print(
+          "⚠️ (DEBUG) Deck controller inactive, setting value and reversing.",
+        );
+        _deckScaleController!.value = 1.0;
+        _deckScaleController!.reverse().whenComplete(() {
+          if (mounted) {
+            setState(() {
+              _deckScaleController!.reset();
+              _isDrawing = false;
+              Future.delayed(Duration(milliseconds: 200), () {
+                if (mounted) {
+                  setState(() {
+                    _canInteractWithDeck = true;
+                    print("✅ (DEBUG) Deck interaction restored.");
+                  });
+                }
+              });
+            });
+          }
+        });
+      }
+    } catch (e) {
+      print(
+        "⚠️ (ERROR) Error while reversing/resetting _deckScaleController: $e",
       );
     }
-
-    if (_deckScaleController!.isAnimating || _deckScaleController!.isCompleted) {
-      print("⚠️ (DEBUG) Reversing deck scale animation.");
-
-      _deckScaleController!.reverse().whenComplete(() {
-        if (mounted) {
-          setState(() {
-            _deckScaleController!.reset();
-            _isDrawing = false;  // Ensure drawing is fully reset
-            Future.delayed(Duration(milliseconds: 200), () {  // Small delay to sync animations
-              if (mounted) {
-                setState(() {
-                  _canInteractWithDeck = true;
-                  print("✅ (DEBUG) Deck interaction restored.");
-                });
-              }
-            });
-          });
-        }
-      });
-    } else {
-      print("⚠️ (DEBUG) Deck controller inactive, setting value and reversing.");
-      _deckScaleController!.value = 1.0;
-      _deckScaleController!.reverse().whenComplete(() {
-        if (mounted) {
-          setState(() {
-            _deckScaleController!.reset();
-            _isDrawing = false;
-            Future.delayed(Duration(milliseconds: 200), () {
-              if (mounted) {
-                setState(() {
-                  _canInteractWithDeck = true;
-                  print("✅ (DEBUG) Deck interaction restored.");
-                });
-              }
-            });
-          });
-        }
-      });
-    }
-  } catch (e) {
-    print("⚠️ (ERROR) Error while reversing/resetting _deckScaleController: $e");
   }
-}
 
   void _handleDiscard() {
     if (_drawnCard == null) return;
@@ -1399,6 +1437,48 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
+          // Show Skip Turn button before drawing, then show Discard button after drawing
+          if (currentPlayer == wheelWinner)
+            Positioned(
+              bottom: 150,
+              left: MediaQuery.of(context).size.width / 2 - 50,
+              child:
+                  _drawnCard == null
+                      ? ElevatedButton(
+                        onPressed: _handleSkipTurn,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                        child: Text(
+                          'Skip Turn',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                      : ElevatedButton(
+                        onPressed: _handleDiscard,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                        ),
+                        child: Text(
+                          'Discard',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+            ),
 
           // Show Discard button if player has drawn a card and it's their turn
           if (showCardEffect &&

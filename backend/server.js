@@ -587,39 +587,78 @@ io.on('connection', (socket) => {
 
     socket.on('reverse_animation_complete', (data) => {
         const { lobbyCode, playerName } = data;
-      
+
         if (!lobbies[lobbyCode]) {
-          console.log(`❌ Lobby ${lobbyCode} does not exist.`);
-          return;
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
         }
-      
+
         console.log(`✅ (SERVER) Reverse animation complete for ${playerName}`);
-      
+
         // 🔥 Move to the next turn
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
-      
+
         if (turnOrder.length === 0) {
-          console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
-          return;
+            console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
+            return;
         }
-      
+
         // Initialize turnIndex if missing
         if (typeof lobby.turnIndex !== 'number') lobby.turnIndex = 0;
-      
+
         // Increment turn index and wrap around
         lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
         const nextPlayer = turnOrder[lobby.turnIndex];
-      
+
         console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
-      
+
         // Emit the next_turn event to all players
         io.to(lobbyCode).emit('next_turn', {
-          currentPlayer: nextPlayer,
-          nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
+            currentPlayer: nextPlayer,
+            nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
-      });
-      
+    });
+
+    socket.on('skip_turn', (data) => {
+        const { lobbyCode, playerName } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        const lobby = lobbies[lobbyCode];
+        const turnOrder = lobby.turnOrder || [];
+
+        if (turnOrder.length === 0) {
+            console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
+            return;
+        }
+
+        // Ensure turnIndex is set
+        if (typeof lobby.turnIndex !== 'number') lobby.turnIndex = 0;
+
+        console.log(`🚫 (SERVER) ${playerName} skipped their turn.`);
+
+        // Move to the next player
+        lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
+        const nextPlayer = turnOrder[lobby.turnIndex];
+
+        console.log(`➡️ (SERVER) Skipped. Next turn: ${nextPlayer}`);
+
+        // Notify all players about the new turn
+        io.to(lobbyCode).emit('next_turn', {
+            currentPlayer: nextPlayer,
+            nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
+        });
+
+        // Show log message on all clients
+        io.to(lobbyCode).emit('show_log_message', {
+            message: `${playerName} skipped their turn.`,
+        });
+    });
+
 
 });
 
