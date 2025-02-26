@@ -48,6 +48,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   late Animation<double> cardGlowAnimation;
   bool showCardEffect = false;
   List<Map<String, dynamic>> discardedCards = [];
+  bool _canInteractWithDeck = false; // Controls deck interactivity
 
   @override
   void initState() {
@@ -310,6 +311,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               wheelWinner = localWinner;
 
               currentTurnStatus = "Current turn: $localWinner";
+
+              _canInteractWithDeck = true;
 
               int winnerIndex = turnOrder.indexOf(localWinner);
               int nextIndex = (winnerIndex + 1) % turnOrder.length;
@@ -802,6 +805,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
     bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
+    bool canTapDeck = isCurrentPlayerTurn && !_isDrawing && _canInteractWithDeck;
 
     return Stack(
       alignment: Alignment.center,
@@ -821,9 +825,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               child: Center(
                 child: GestureDetector(
                   onTap:
-                      (isCurrentPlayerTurn && !_isDrawing)
-                          ? _handleDeckTap
-                          : null,
+                      canTapDeck ? _handleDeckTap : null,
                   child: AnimatedBuilder(
                     animation:
                         _deckScaleController ?? AlwaysStoppedAnimation(0),
@@ -892,13 +894,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                     offset: Offset(2, 2),
                                   ),
                                 ],
-                                border:
-                                    (isCurrentPlayerTurn && !_isDrawing)
-                                        ? Border.all(
-                                          color: Colors.yellowAccent,
-                                          width: 5,
-                                        )
-                                        : null,
+                                border: canTapDeck
+                                  ? Border.all(color: Colors.yellowAccent, width: 5)
+                                  : null, 
                               ),
                               child: Center(
                                 child:
@@ -1016,21 +1014,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleDeckTap() {
-    if (_isDrawing) return; // Prevent multiple taps
+    if (_isDrawing || !_canInteractWithDeck) return; // Ensure strict blocking
     _isDrawing = true;
+    _canInteractWithDeck = false;
 
     print("🎯 (DEBUG) Deck tapped by $currentPlayer");
 
-    // Disable deck interactivity immediately
-    setState(() {}); // Triggers rebuild to disable tap
+    setState(() {}); // Rebuild UI to reflect interaction blocking
 
-    // Notify server to start the draw
     widget.socket.emit('draw_card', {
       'lobbyCode': widget.lobbyCode,
       'playerName': currentPlayer,
     });
 
-    // Start the scaling animation
     _startCardDrawAnimation();
   }
 
@@ -1061,57 +1057,69 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _safeReverseDeckScale() {
-    try {
-      // Check if the controller exists and is not disposed
-      if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
-        print(
-          "⚠️ (DEBUG) _deckScaleController is null or not animating. Creating new instance.",
-        );
+  try {
+    setState(() {
+      _canInteractWithDeck = false;  // Ensure deck remains non-interactive
+    });
 
-        _deckScaleController = AnimationController(
-          duration: Duration(milliseconds: 800),
-          vsync: this,
-        );
-      }
-
-      // Ensure controller is active before reversing
-      if (_deckScaleController!.isAnimating ||
-          _deckScaleController!.isCompleted) {
-        print("⚠️ (DEBUG) Starting reverse on deck scale controller.");
-
-        _deckScaleController!.reverse().whenComplete(() {
-          if (mounted) {
-            setState(() {
-              _deckScaleController!.reset();
-              print("✅ (DEBUG) Deck scale reversed and reset.");
-            });
-          }
-        });
-      } else {
-        print(
-          "⚠️ (DEBUG) _deckScaleController is inactive. Setting value and reversing.",
-        );
-        _deckScaleController!.value = 1.0; // Ensure it's fully scaled
-        _deckScaleController!.reverse().whenComplete(() {
-          if (mounted) {
-            setState(() {
-              _deckScaleController!.reset();
-              print("✅ (DEBUG) Deck scale reversed and reset.");
-            });
-          }
-        });
-      }
-    } catch (e) {
-      print(
-        "⚠️ (ERROR) Error while reversing/resetting _deckScaleController: $e",
+    if (_deckScaleController == null || !_deckScaleController!.isAnimating) {
+      _deckScaleController = AnimationController(
+        duration: Duration(milliseconds: 800),
+        vsync: this,
       );
     }
+
+    if (_deckScaleController!.isAnimating || _deckScaleController!.isCompleted) {
+      print("⚠️ (DEBUG) Reversing deck scale animation.");
+
+      _deckScaleController!.reverse().whenComplete(() {
+        if (mounted) {
+          setState(() {
+            _deckScaleController!.reset();
+            _isDrawing = false;  // Ensure drawing is fully reset
+            Future.delayed(Duration(milliseconds: 200), () {  // Small delay to sync animations
+              if (mounted) {
+                setState(() {
+                  _canInteractWithDeck = true;
+                  print("✅ (DEBUG) Deck interaction restored.");
+                });
+              }
+            });
+          });
+        }
+      });
+    } else {
+      print("⚠️ (DEBUG) Deck controller inactive, setting value and reversing.");
+      _deckScaleController!.value = 1.0;
+      _deckScaleController!.reverse().whenComplete(() {
+        if (mounted) {
+          setState(() {
+            _deckScaleController!.reset();
+            _isDrawing = false;
+            Future.delayed(Duration(milliseconds: 200), () {
+              if (mounted) {
+                setState(() {
+                  _canInteractWithDeck = true;
+                  print("✅ (DEBUG) Deck interaction restored.");
+                });
+              }
+            });
+          });
+        }
+      });
+    }
+  } catch (e) {
+    print("⚠️ (ERROR) Error while reversing/resetting _deckScaleController: $e");
   }
+}
 
   void _handleDiscard() {
     if (_drawnCard == null) return;
 
     print("🗑️ (CLIENT) Discarding card: $_drawnCard");
+
+    _canInteractWithDeck = false;
+    setState(() {});
 
     // Send discard event to server with a flag to trigger animation
     widget.socket.emit('discard_card', {
