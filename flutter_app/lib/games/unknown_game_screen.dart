@@ -477,6 +477,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         _showLogMessage(message); // 🔥 Show message to all players
       }
     });
+
+    widget.socket.on('highlight_discarded_card', (data) {
+      final selectedCard = data['card'];
+
+      if (selectedCard != null && mounted) {
+        setState(() {
+          for (var card in discardedCards) {
+            card['isSelected'] = card['card'] == selectedCard;
+          }
+        });
+
+        print(
+          "🃏 (CLIENT) Highlighting selected discarded card: $selectedCard",
+        );
+      }
+    });
   }
 
   void _flipDrawnCard() {
@@ -823,6 +839,29 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     }).toList();
   }
 
+  void _handleDiscardedCardTap(Map<String, dynamic> cardData) {
+    if (currentPlayer != wheelWinner)
+      return; // ✅ Ensure only the current player can interact
+
+    print("🃏 (CLIENT) Tapped on discarded card: ${cardData['card']}");
+
+    setState(() {
+      // Reset selection for all, keeping their rotation
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
+
+      // Select only the clicked card
+      cardData['isSelected'] = true;
+    });
+
+    // Broadcast to all players that this card was tapped
+    widget.socket.emit('discard_pile_card_selected', {
+      'lobbyCode': widget.lobbyCode,
+      'card': cardData['card'],
+    });
+  }
+
   /// **Builds deck at the center with animating cards**
   Widget _buildCenterDeck() {
     bool isCurrentPlayerTurn = currentPlayer == wheelWinner;
@@ -960,11 +999,48 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 alignment: Alignment.center,
                 children:
                     discardedCards.isNotEmpty
-                        ? discardedCards.map((discarded) {
-                          return Transform.rotate(
-                            angle:
-                                discarded['rotation'], // Apply random rotation
-                            child: _buildCardFace(discarded['card']),
+                        ? discardedCards.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final discarded = entry.value;
+                          final isTopCard =
+                              index ==
+                              discardedCards.length -
+                                  1; // Only top card is clickable
+                          final isCurrentPlayerTurn =
+                              currentPlayer ==
+                              wheelWinner; // Only current player can interact
+
+                          return GestureDetector(
+                            onTap:
+                                isTopCard && isCurrentPlayerTurn
+                                    ? () => _handleDiscardedCardTap(discarded)
+                                    : null,
+                            child: AnimatedScale(
+                              scale:
+                                  isTopCard
+                                      ? (discarded['isSelected'] == true
+                                          ? 2.0
+                                          : 1.0) // 🔥 Zoom to 2x when clicked
+                                      : 1.0,
+                              duration: Duration(milliseconds: 300),
+                              child: Transform.rotate(
+                                angle:
+                                    discarded['rotation'], // ✅ Preserve rotation while interacting
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    border:
+                                        isTopCard && isCurrentPlayerTurn
+                                            ? Border.all(
+                                              color: Colors.yellowAccent,
+                                              width: 3,
+                                            )
+                                            : null, // ✅ Only show outline for the current player
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: _buildCardFace(discarded['card']),
+                                ),
+                              ),
+                            ),
                           );
                         }).toList()
                         : [
@@ -1453,7 +1529,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
-          
+
           // Show Skip Turn button before drawing, then show Discard button after drawing
           if (canTapDeck)
             Positioned(

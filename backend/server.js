@@ -659,6 +659,21 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('discard_pile_card_selected', (data) => {
+        const { lobbyCode, card } = data;
+
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        console.log(`🃏 (SERVER) Top discarded card selected: ${card}`);
+
+        // Broadcast to all players that this card has been selected
+        io.to(lobbyCode).emit('highlight_discarded_card', { card });
+    });
+
+
 
 });
 
