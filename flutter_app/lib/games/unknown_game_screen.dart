@@ -478,6 +478,18 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       }
     });
 
+    widget.socket.on('reset_discarded_card', (data) {
+      if (mounted) {
+        setState(() {
+          for (var card in discardedCards) {
+            card['isSelected'] = false;
+          }
+        });
+
+        print("🔄 (CLIENT) Reset discarded card zoom for all players.");
+      }
+    });
+
     widget.socket.on('highlight_discarded_card', (data) {
       final selectedCard = data['card'];
 
@@ -840,22 +852,25 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleDiscardedCardTap(Map<String, dynamic> cardData) {
-    if (currentPlayer != wheelWinner)
-      return; // ✅ Ensure only the current player can interact
+    if (currentPlayer != wheelWinner) return; // ✅ Only allow the current player
 
     print("🃏 (CLIENT) Tapped on discarded card: ${cardData['card']}");
 
     setState(() {
-      // Reset selection for all, keeping their rotation
+      // Reset selection for all discarded cards
       for (var card in discardedCards) {
         card['isSelected'] = false;
       }
 
       // Select only the clicked card
       cardData['isSelected'] = true;
+
+      // 🔥 Disable deck interaction & remove deck outline
+      _canInteractWithDeck = false;
+      _showSkipButton =
+          (currentPlayer == wheelWinner); // ✅ Ensure Skip is available
     });
 
-    // Broadcast to all players that this card was tapped
     widget.socket.emit('discard_pile_card_selected', {
       'lobbyCode': widget.lobbyCode,
       'card': cardData['card'],
@@ -871,11 +886,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Center Deck and Discard Pile in a Row
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Center Deck with Outlined Area
+            // 🎴 Center Deck
             Container(
               width: 75,
               height: 95,
@@ -910,7 +924,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // Glowing effect
                             if (showCardEffect)
                               AnimatedBuilder(
                                 animation: cardGlowAnimation,
@@ -933,7 +946,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                   );
                                 },
                               ),
-                            // The actual card (face-up or back)
                             Container(
                               width: 45,
                               height: 65,
@@ -985,9 +997,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               ),
             ),
 
-            SizedBox(width: 20), // Space between deck and discard pile
-            // Discarded Cards Pile (Fixed next to deck)
-            // Discarded Cards Pile (Fixed next to deck)
+            SizedBox(width: 20),
+
+            // 🗑️ Discard Pile
             Container(
               width: 75,
               height: 95,
@@ -1002,13 +1014,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                         ? discardedCards.asMap().entries.map((entry) {
                           final index = entry.key;
                           final discarded = entry.value;
-                          final isTopCard =
-                              index ==
-                              discardedCards.length -
-                                  1; // Only top card is clickable
+                          final isTopCard = index == discardedCards.length - 1;
                           final isCurrentPlayerTurn =
-                              currentPlayer ==
-                              wheelWinner; // Only current player can interact
+                              currentPlayer == wheelWinner;
 
                           return GestureDetector(
                             onTap:
@@ -1020,12 +1028,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                   isTopCard
                                       ? (discarded['isSelected'] == true
                                           ? 2.0
-                                          : 1.0) // 🔥 Zoom to 2x when clicked
+                                          : 1.0)
                                       : 1.0,
                               duration: Duration(milliseconds: 300),
                               child: Transform.rotate(
-                                angle:
-                                    discarded['rotation'], // ✅ Preserve rotation while interacting
+                                angle: discarded['rotation'],
                                 child: Container(
                                   decoration: BoxDecoration(
                                     border:
@@ -1034,7 +1041,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                               color: Colors.yellowAccent,
                                               width: 3,
                                             )
-                                            : null, // ✅ Only show outline for the current player
+                                            : null,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: _buildCardFace(discarded['card']),
@@ -1060,7 +1067,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           ],
         ),
 
-        // Animate cards moving to recipients
+        // 🎭 Animate cards being distributed to players
         ...animatingCards.map((animCard) {
           return AnimatedBuilder(
             animation: animCard.animation,
@@ -1094,13 +1101,13 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                           child:
                               isFlipped
                                   ? Text(
-                                    animCard.card, // Show card face
+                                    animCard.card,
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   )
-                                  : _buildCardBack(), // Show card back
+                                  : _buildCardBack(),
                         ),
                       ),
                     );
@@ -1115,15 +1122,23 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleDeckTap() {
-    if (_isDrawing || !_canInteractWithDeck) return; // Ensure strict blocking
+    if (_isDrawing || !_canInteractWithDeck) return;
     _isDrawing = true;
     _canInteractWithDeck = false;
 
     print("🎯 (DEBUG) Deck tapped by $currentPlayer");
 
     setState(() {
-      _showSkipButton = false; // Hide Skip Turn button when a card is drawn
+      _showSkipButton = false; // ✅ Hide Skip only when drawing
+
+      // 🔥 Reset all selected discarded cards
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
     });
+
+    // Broadcast the deselection to all players
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
 
     widget.socket.emit('draw_card', {
       'lobbyCode': widget.lobbyCode,
@@ -1134,12 +1149,24 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleSkipTurn() {
+    if (currentPlayer != wheelWinner)
+      return; // ✅ Ensure only the current player can click Skip
+
     print("🚫 (CLIENT) $currentPlayer skipped their turn");
 
     setState(() {
-      _showSkipButton = false; // Hide Skip Turn button
+      _showSkipButton = false; // ✅ Hide Skip button after clicking
+
+      // 🔥 Reset discarded card zoom
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
     });
 
+    // Broadcast the reset to ALL clients
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
+
+    // Emit skip turn event
     widget.socket.emit('skip_turn', {
       'lobbyCode': widget.lobbyCode,
       'playerName': currentPlayer,
@@ -1531,7 +1558,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           Center(child: _buildCenterDeck()),
 
           // Show Skip Turn button before drawing, then show Discard button after drawing
-          if (canTapDeck)
+          if (_showSkipButton && currentPlayer == wheelWinner)
             Positioned(
               bottom: 150,
               left: MediaQuery.of(context).size.width / 2 - 50,

@@ -673,7 +673,20 @@ io.on('connection', (socket) => {
         io.to(lobbyCode).emit('highlight_discarded_card', { card });
     });
 
-
+    socket.on('reset_discarded_card', (data) => {
+        const { lobbyCode } = data;
+    
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+    
+        console.log(`🔄 (SERVER) Resetting discarded card selection for all players in lobby ${lobbyCode}`);
+    
+        // Broadcast to all players to reset the discarded card selection
+        io.to(lobbyCode).emit('reset_discarded_card');
+    });
+    
 
 });
 
