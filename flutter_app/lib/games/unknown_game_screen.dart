@@ -977,7 +977,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                     width: 60 * cardGlowAnimation.value,
                                     height: 80 * cardGlowAnimation.value,
                                     decoration: BoxDecoration(
-                                      shape: BoxShape.rectangle,
                                       borderRadius: BorderRadius.circular(12),
                                       boxShadow: [
                                         BoxShadow(
@@ -1017,7 +1016,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                             !_hasSelectedDiscard
                                         ? Border.all(
                                           color: Colors.yellowAccent,
-                                          width: 5,
+                                          width: 4, // ✅ Thin external outline
                                         )
                                         : null,
                               ),
@@ -1047,30 +1046,31 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             SizedBox(width: 20),
 
             // 🗑️ Discard Pile
-            Container(
-              width: 75,
-              height: 95,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white38),
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children:
-                    discardedCards.isNotEmpty
-                        ? discardedCards.asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final discarded = entry.value;
-                          final isTopCard = index == discardedCards.length - 1;
-                          final isCurrentPlayerTurn =
-                              currentPlayer == wheelWinner;
+            GestureDetector(
+              onTap:
+                  (discardedCards.isNotEmpty &&
+                          currentPlayer == wheelWinner &&
+                          !_hasSelectedDeck)
+                      ? () => _handleDiscardedCardTap(discardedCards.last)
+                      : null,
+              child: Container(
+                width: 75,
+                height: 95,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white38),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children:
+                      discardedCards.isNotEmpty
+                          ? discardedCards.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final discarded = entry.value;
+                            final isTopCard =
+                                index == discardedCards.length - 1;
 
-                          return GestureDetector(
-                            onTap:
-                                isTopCard && isCurrentPlayerTurn
-                                    ? () => _handleDiscardedCardTap(discarded)
-                                    : null,
-                            child: AnimatedScale(
+                            return AnimatedScale(
                               scale:
                                   isTopCard
                                       ? (discarded['isSelected'] == true
@@ -1082,6 +1082,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                 angle: discarded['rotation'],
                                 child: Container(
                                   decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
                                     border:
                                         isTopCard &&
                                                 isCurrentPlayerTurn &&
@@ -1089,33 +1090,82 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                                 !_hasSelectedDiscard
                                             ? Border.all(
                                               color: Colors.yellowAccent,
-                                              width: 3,
+                                              width:
+                                                  4, // ✅ Thin external outline
                                             )
                                             : null,
-                                    borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: _buildCardFace(discarded['card']),
                                 ),
                               ),
-                            ),
-                          );
-                        }).toList()
-                        : [
-                          Center(
-                            child: Text(
-                              "Discard Pile",
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: 12,
+                            );
+                          }).toList()
+                          : [
+                            Center(
+                              child: Text(
+                                "Discard Pile",
+                                style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
-                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        ],
+                          ],
+                ),
               ),
             ),
           ],
         ),
+        ...animatingCards.map((animCard) {
+          return AnimatedBuilder(
+            animation: animCard.animation,
+            builder: (context, child) {
+              return Align(
+                alignment: animCard.animation.value,
+                child: AnimatedBuilder(
+                  animation: animCard.flipAnimation,
+                  builder: (context, child) {
+                    final isFlipped = animCard.flipAnimation.value >= pi / 2;
+                    return Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.rotationY(
+                        animCard.flipAnimation.value,
+                      ),
+                      child: Container(
+                        width: 45,
+                        height: 65,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(2, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child:
+                              isFlipped
+                                  ? Text(
+                                    animCard.card,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                  : _buildCardBack(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          );
+        }).toList(),
       ],
     );
   }
