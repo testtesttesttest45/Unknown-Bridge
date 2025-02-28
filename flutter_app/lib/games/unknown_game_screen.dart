@@ -50,6 +50,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   List<Map<String, dynamic>> discardedCards = [];
   bool _canInteractWithDeck = false; // Controls deck interactivity
   bool _showSkipButton = false;
+  bool _hasSelectedDeck = false;
+  bool _hasSelectedDiscard = false;
+  bool _showUndoSelection = false;
 
   @override
   void initState() {
@@ -451,19 +454,24 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         setState(() {
           wheelWinner = newCurrentPlayer; // Highlight current player
           showWinnerHighlight = true;
-
           currentTurnStatus = "Current turn: $newCurrentPlayer";
           nextTurnPlayer = upcomingPlayer;
 
           _isDrawing = false; // ✅ Reset drawing state for new turn
-          _drawnCard = null; // Reset drawn card
-          showCardEffect = false; // Hide discard effect
+          _drawnCard = null; // ✅ Reset drawn card
+          showCardEffect = false; // ✅ Hide discard effect
+
           _showSkipButton =
-              newCurrentPlayer ==
-              currentPlayer; // Show Skip Turn button only for current player
+              (newCurrentPlayer ==
+                  currentPlayer); // ✅ Ensure Skip button is shown only for the current player
+
+          // 🔥 Fix: Reset selection flags to ensure yellow outline is visible again
+          _hasSelectedDeck = false;
+          _hasSelectedDiscard = false;
+          _showUndoSelection = false;
 
           if (currentPlayer == newCurrentPlayer) {
-            _showLogMessage("It's your turn! Draw a card.");
+            _showLogMessage("It's your turn! Draw or pick a card.");
           }
         });
       }
@@ -851,30 +859,67 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     }).toList();
   }
 
+  void _handleDeckTap() {
+    if (_isDrawing || !_canInteractWithDeck) return;
+
+    print("🎯 (DEBUG) Deck tapped by $currentPlayer");
+
+    setState(() {
+      _isDrawing = true;
+      _canInteractWithDeck = false;
+      _hasSelectedDeck = true;
+      _hasSelectedDiscard = false;
+      _showSkipButton = false; // ✅ Hide Skip when drawing
+      _showUndoSelection = false; // ✅ Ensure Undo Selection is not visible
+    });
+
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
+    widget.socket.emit('draw_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+    });
+
+    _startCardDrawAnimation();
+  }
+
   void _handleDiscardedCardTap(Map<String, dynamic> cardData) {
-    if (currentPlayer != wheelWinner) return; // ✅ Only allow the current player
+    if (currentPlayer != wheelWinner) return;
 
     print("🃏 (CLIENT) Tapped on discarded card: ${cardData['card']}");
 
     setState(() {
-      // Reset selection for all discarded cards
       for (var card in discardedCards) {
         card['isSelected'] = false;
       }
 
-      // Select only the clicked card
       cardData['isSelected'] = true;
-
-      // 🔥 Disable deck interaction & remove deck outline
-      _canInteractWithDeck = false;
-      _showSkipButton =
-          (currentPlayer == wheelWinner); // ✅ Ensure Skip is available
+      _hasSelectedDiscard = true;
+      _hasSelectedDeck = false;
+      _showSkipButton = true;
+      _showUndoSelection = true; // ✅ Show Undo Selection after clicking discard
     });
 
     widget.socket.emit('discard_pile_card_selected', {
       'lobbyCode': widget.lobbyCode,
       'card': cardData['card'],
     });
+  }
+
+  void _handleUndoSelection() {
+    print("↩️ (CLIENT) Undo selection");
+
+    setState(() {
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
+
+      _hasSelectedDiscard = false;
+      _hasSelectedDeck = false;
+      _showSkipButton = true; // ✅ Restore Skip after undo
+      _showUndoSelection = false; // ✅ Hide Undo Selection
+    });
+
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
   }
 
   /// **Builds deck at the center with animating cards**
@@ -890,16 +935,16 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             // 🎴 Center Deck
-            Container(
-              width: 75,
-              height: 95,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white38),
-              ),
-              child: Center(
-                child: GestureDetector(
-                  onTap: canTapDeck ? _handleDeckTap : null,
+            GestureDetector(
+              onTap: canTapDeck ? _handleDeckTap : null,
+              child: Container(
+                width: 75,
+                height: 95,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white38),
+                ),
+                child: Center(
                   child: AnimatedBuilder(
                     animation:
                         _deckScaleController ?? AlwaysStoppedAnimation(0),
@@ -967,7 +1012,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                   ),
                                 ],
                                 border:
-                                    canTapDeck
+                                    isCurrentPlayerTurn &&
+                                            !_hasSelectedDeck &&
+                                            !_hasSelectedDiscard
                                         ? Border.all(
                                           color: Colors.yellowAccent,
                                           width: 5,
@@ -1036,7 +1083,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                                 child: Container(
                                   decoration: BoxDecoration(
                                     border:
-                                        isTopCard && isCurrentPlayerTurn
+                                        isTopCard &&
+                                                isCurrentPlayerTurn &&
+                                                !_hasSelectedDeck &&
+                                                !_hasSelectedDiscard
                                             ? Border.all(
                                               color: Colors.yellowAccent,
                                               width: 3,
@@ -1066,86 +1116,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             ),
           ],
         ),
-
-        // 🎭 Animate cards being distributed to players
-        ...animatingCards.map((animCard) {
-          return AnimatedBuilder(
-            animation: animCard.animation,
-            builder: (context, child) {
-              return Align(
-                alignment: animCard.animation.value,
-                child: AnimatedBuilder(
-                  animation: animCard.flipAnimation,
-                  builder: (context, child) {
-                    final isFlipped = animCard.flipAnimation.value >= pi / 2;
-                    return Transform(
-                      alignment: Alignment.center,
-                      transform: Matrix4.rotationY(
-                        animCard.flipAnimation.value,
-                      ),
-                      child: Container(
-                        width: 45,
-                        height: 65,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black26,
-                              blurRadius: 4,
-                              offset: Offset(2, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child:
-                              isFlipped
-                                  ? Text(
-                                    animCard.card,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                  : _buildCardBack(),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          );
-        }).toList(),
       ],
     );
-  }
-
-  void _handleDeckTap() {
-    if (_isDrawing || !_canInteractWithDeck) return;
-    _isDrawing = true;
-    _canInteractWithDeck = false;
-
-    print("🎯 (DEBUG) Deck tapped by $currentPlayer");
-
-    setState(() {
-      _showSkipButton = false; // ✅ Hide Skip only when drawing
-
-      // 🔥 Reset all selected discarded cards
-      for (var card in discardedCards) {
-        card['isSelected'] = false;
-      }
-    });
-
-    // Broadcast the deselection to all players
-    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
-
-    widget.socket.emit('draw_card', {
-      'lobbyCode': widget.lobbyCode,
-      'playerName': currentPlayer,
-    });
-
-    _startCardDrawAnimation();
   }
 
   void _handleSkipTurn() {
@@ -1556,48 +1528,43 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
           // Center deck and animating cards
           Center(child: _buildCenterDeck()),
-
-          // Show Skip Turn button before drawing, then show Discard button after drawing
-          if (_showSkipButton && currentPlayer == wheelWinner)
+          if (currentPlayer == wheelWinner)
+            // Show Skip Turn button before drawing, then show Discard button after drawing
             Positioned(
               bottom: 150,
-              left: MediaQuery.of(context).size.width / 2 - 50,
-              child:
-                  _drawnCard == null
-                      ? ElevatedButton(
-                        onPressed: _handleSkipTurn,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10,
-                          ),
-                        ),
-                        child: Text(
-                          'Skip Turn',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      )
-                      : ElevatedButton(
-                        onPressed: _handleDiscard,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 10,
-                          ),
-                        ),
-                        child: Text(
-                          'Discard',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+              left: MediaQuery.of(context).size.width / 2 - 100,
+              child: Row(
+                children: [
+                  if (_showSkipButton)
+                    ElevatedButton(
+                      onPressed: _handleSkipTurn,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
                         ),
                       ),
+                      child: Text("Skip Turn", style: TextStyle(fontSize: 18)),
+                    ),
+                  if (_showUndoSelection) SizedBox(width: 10),
+                  if (_showUndoSelection)
+                    ElevatedButton(
+                      onPressed: _handleUndoSelection,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueGrey,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                      ),
+                      child: Text(
+                        "Undo Selection",
+                        style: TextStyle(fontSize: 18),
+                      ),
+                    ),
+                ],
+              ),
             ),
 
           // Show Discard button if player has drawn a card and it's their turn
