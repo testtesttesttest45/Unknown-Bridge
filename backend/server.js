@@ -686,6 +686,44 @@ io.on('connection', (socket) => {
         // Broadcast to all players to reset the discarded card selection
         io.to(lobbyCode).emit('reset_discarded_card');
     });
+
+    socket.on('replace_card', (data) => {
+        const { lobbyCode, playerName, replacedCard, newCard } = data;
+    
+        if (!lobbies[lobbyCode]) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+    
+        console.log(`🔄 (SERVER) ${playerName} replaced ${replacedCard} with ${newCard}`);
+    
+        // Add the replaced card to the discard pile
+        if (!lobbies[lobbyCode].discardedCards) {
+            lobbies[lobbyCode].discardedCards = [];
+        }
+    
+        lobbies[lobbyCode].discardedCards.push({ playerName, card: replacedCard });
+    
+        // Broadcast updated discard pile and new turn
+        io.to(lobbyCode).emit('card_discarded', {
+            playerName,
+            card: replacedCard,
+        });
+    
+        // Move to the next turn
+        const lobby = lobbies[lobbyCode];
+        const turnOrder = lobby.turnOrder || [];
+        lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
+        const nextPlayer = turnOrder[lobby.turnIndex];
+    
+        console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
+    
+        io.to(lobbyCode).emit('next_turn', {
+            currentPlayer: nextPlayer,
+            nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
+        });
+    });
+    
     
 
 });
