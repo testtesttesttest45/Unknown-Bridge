@@ -961,6 +961,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       cardData['isSelected'] = true;
       _hasSelectedDiscard = true;
       _hasSelectedDeck = false;
+      _canInteractWithDeck = false; // 🔥 Prevent interacting with the deck
       _showSkipButton = true;
       _showUndoSelection = true; // ✅ Show Undo Selection after clicking discard
     });
@@ -981,6 +982,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
       _hasSelectedDiscard = false;
       _hasSelectedDeck = false;
+      _canInteractWithDeck = true; // 🔥 Restore deck interaction
       _showSkipButton = true; // ✅ Restore Skip after undo
       _showUndoSelection = false; // ✅ Hide Undo Selection
     });
@@ -1366,7 +1368,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             setState(() {
               _deckScaleController!.reset();
               _isDrawing = false;
-              Future.delayed(Duration(milliseconds: 750), () { // dont touch already
+              Future.delayed(Duration(milliseconds: 750), () {
+                // dont touch already
                 if (mounted) {
                   setState(() {
                     _canInteractWithDeck = true;
@@ -1687,7 +1690,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             left: MediaQuery.of(context).size.width / 2 - 100,
             child: Row(
               children: [
-                if (_showSkipButton && currentPlayer == wheelWinner) 
+                if (_showSkipButton && currentPlayer == wheelWinner)
                   ElevatedButton(
                     onPressed: _handleSkipTurn,
                     style: ElevatedButton.styleFrom(
@@ -1784,7 +1787,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       ),
     );
   }
-
 }
 
 /// Helper class to track animating cards
