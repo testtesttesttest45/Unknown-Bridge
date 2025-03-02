@@ -827,10 +827,15 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
       bool isCurrentPlayer = playerName == currentPlayer;
       bool isSelectable =
-          isCurrentPlayer && _canCurrentPlayerReplace; // ✅ FIXED
+          isCurrentPlayer &&
+          _isSelectingReplacement &&
+          _drawnCard != null; // ✅ Allow replacement
 
       return GestureDetector(
-        onTap: isSelectable ? () => _handleReplaceCard(index) : null,
+        onTap:
+            isSelectable
+                ? () => _handleReplaceCard(index)
+                : null, // ✅ Allow replacing
         child: Container(
           width: vertical ? 65 : 45,
           height: vertical ? 45 : 65,
@@ -840,8 +845,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           ),
           decoration: BoxDecoration(
             border:
-                (isSelectable) // ✅ Only current player's cards get yellow outline
-                    ? Border.all(color: Colors.yellowAccent, width: 3)
+                isSelectable
+                    ? Border.all(
+                      color: Colors.yellowAccent,
+                      width: 3,
+                    ) // ✅ Highlight for replacement
                     : null,
             borderRadius: BorderRadius.circular(8),
           ),
@@ -885,7 +893,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleReplaceCard(int replaceIndex) {
-    if (_drawnCard == null) return;
+    if (_drawnCard == null)
+      return; // ✅ Ensure a card is selected (either from deck or discard pile)
 
     String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
 
@@ -894,15 +903,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
 
     setState(() {
-      // ✅ Replace the selected card with the drawn card
+      // ✅ Replace the selected card with the drawn/discarded card
       playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
 
-      // ✅ Clear selection
+      // ✅ Clear selection and reset state
       _drawnCard = null;
       _isCardFlipped = false;
       showCardEffect = false;
       _isSelectingReplacement = false;
       _selectedReplacementIndex = null;
+      _hasSelectedDiscard = false;
+      _hasSelectedDeck = false;
+      _showUndoSelection = false;
+      _canInteractWithDeck = true; // ✅ Re-enable deck interactions
     });
 
     // ✅ Notify the server about the replacement
@@ -913,7 +926,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       'newCard': playerHands[currentPlayer]![replaceIndex]['card'],
     });
 
-    // ✅ Reset deck scale so that next player sees normal-sized deck
+    // ✅ Reset deck scale for next turn
     widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
 
     // ✅ Log message for clarity
@@ -964,12 +977,20 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       _canInteractWithDeck = false; // 🔥 Prevent interacting with the deck
       _showSkipButton = true;
       _showUndoSelection = true; // ✅ Show Undo Selection after clicking discard
+
+      // ✅ Store the selected discarded card for replacement
+      _drawnCard = cardData['card'];
+      _isSelectingReplacement = true; // ✅ Enable replacement
     });
 
     widget.socket.emit('discard_pile_card_selected', {
       'lobbyCode': widget.lobbyCode,
       'card': cardData['card'],
     });
+
+    _showLogMessage(
+      "Tap on a hand card to replace it with ${cardData['card']}",
+    );
   }
 
   void _handleUndoSelection() {
@@ -985,6 +1006,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       _canInteractWithDeck = true; // 🔥 Restore deck interaction
       _showSkipButton = true; // ✅ Restore Skip after undo
       _showUndoSelection = false; // ✅ Hide Undo Selection
+      _drawnCard = null; // ✅ Clear the selected discarded card
+      _isSelectingReplacement = false; // ✅ Prevent replacement mode
     });
 
     widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
@@ -1314,8 +1337,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           }
         });
 
-        // ✅ Show log message AFTER animation completes
-        _showLogMessage("Discard or Replace your card!");
+        if (currentPlayer == wheelWinner) {
+          _showLogMessage("Discard or Replace your card!");
+        }
       }
     });
 
