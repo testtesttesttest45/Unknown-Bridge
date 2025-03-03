@@ -524,6 +524,40 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         );
       }
     });
+
+    widget.socket.on('update_replaced_card', (data) {
+      String playerName = data['playerName'];
+      int replaceIndex = data['replaceIndex'];
+      String newCard = data['newCard'];
+
+      if (playerHands.containsKey(playerName)) {
+        setState(() {
+          playerHands[playerName]![replaceIndex]['card'] = newCard;
+
+          // Trigger a flip animation
+          _triggerCardFlip(playerName, replaceIndex, true);
+        });
+
+        print(
+          "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex",
+        );
+      }
+    });
+
+    widget.socket.on('flip_card_back', (data) {
+      String playerName = data['playerName'];
+      int replaceIndex = data['replaceIndex'];
+
+      if (playerHands.containsKey(playerName)) {
+        setState(() {
+          _triggerCardFlip(playerName, replaceIndex, false);
+        });
+
+        print(
+          "🔄 (CLIENT) Flipped back replaced card for $playerName at index $replaceIndex",
+        );
+      }
+    });
   }
 
   void _flipDrawnCard() {
@@ -893,8 +927,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleReplaceCard(int replaceIndex) {
-    if (_drawnCard == null)
-      return; // ✅ Ensure a card is selected (either from deck or discard pile)
+    if (_drawnCard == null) return;
 
     String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
 
@@ -903,10 +936,34 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
 
     setState(() {
-      // ✅ Replace the selected card with the drawn/discarded card
       playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
+    });
 
-      // ✅ Clear selection and reset state
+    // Emit replacement event to server
+    widget.socket.emit('replace_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+      'replacedCard': replacedCard,
+      'newCard': _drawnCard,
+      'replaceIndex': replaceIndex,
+    });
+
+    // ✅ Flip the replaced card back to face-down after a delay for **all players**
+    Future.delayed(Duration(seconds: 2), () {
+      widget.socket.emit('flip_card_back', {
+        'lobbyCode': widget.lobbyCode,
+        'playerName': currentPlayer,
+        'replaceIndex': replaceIndex,
+      });
+    });
+
+    // ✅ Ensure the deck scale reset only happens if the deck was used
+    if (!_hasSelectedDiscard) {
+      widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
+    }
+
+    // Reset interaction states
+    setState(() {
       _drawnCard = null;
       _isCardFlipped = false;
       showCardEffect = false;
@@ -915,21 +972,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       _hasSelectedDiscard = false;
       _hasSelectedDeck = false;
       _showUndoSelection = false;
-      _canInteractWithDeck = true; // ✅ Re-enable deck interactions
+      _canInteractWithDeck = true;
     });
 
-    // ✅ Notify the server about the replacement
-    widget.socket.emit('replace_card', {
-      'lobbyCode': widget.lobbyCode,
-      'playerName': currentPlayer,
-      'replacedCard': replacedCard,
-      'newCard': playerHands[currentPlayer]![replaceIndex]['card'],
-    });
-
-    // ✅ Reset deck scale for next turn
-    widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
-
-    // ✅ Log message for clarity
     _showLogMessage("$currentPlayer replaced $replacedCard with a new card.");
   }
 
@@ -972,15 +1017,13 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       }
 
       cardData['isSelected'] = true;
-      _hasSelectedDiscard = true;
+      _hasSelectedDiscard = true; // ✅ Ensure discard flag is set properly
       _hasSelectedDeck = false;
-      _canInteractWithDeck = false; // 🔥 Prevent interacting with the deck
+      _canInteractWithDeck = false;
       _showSkipButton = true;
-      _showUndoSelection = true; // ✅ Show Undo Selection after clicking discard
-
-      // ✅ Store the selected discarded card for replacement
+      _showUndoSelection = true;
       _drawnCard = cardData['card'];
-      _isSelectingReplacement = true; // ✅ Enable replacement
+      _isSelectingReplacement = true;
     });
 
     widget.socket.emit('discard_pile_card_selected', {

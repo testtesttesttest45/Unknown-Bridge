@@ -675,56 +675,74 @@ io.on('connection', (socket) => {
 
     socket.on('reset_discarded_card', (data) => {
         const { lobbyCode } = data;
-    
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             return;
         }
-    
+
         console.log(`🔄 (SERVER) Resetting discarded card selection for all players in lobby ${lobbyCode}`);
-    
+
         // Broadcast to all players to reset the discarded card selection
         io.to(lobbyCode).emit('reset_discarded_card');
     });
 
     socket.on('replace_card', (data) => {
-        const { lobbyCode, playerName, replacedCard, newCard } = data;
-    
+        const { lobbyCode, playerName, replacedCard, newCard, replaceIndex } = data;
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             return;
         }
-    
+
         console.log(`🔄 (SERVER) ${playerName} replaced ${replacedCard} with ${newCard}`);
-    
+
         // Add the replaced card to the discard pile
         if (!lobbies[lobbyCode].discardedCards) {
             lobbies[lobbyCode].discardedCards = [];
         }
-    
+
         lobbies[lobbyCode].discardedCards.push({ playerName, card: replacedCard });
-    
+
         // Broadcast updated discard pile and new turn
         io.to(lobbyCode).emit('card_discarded', {
             playerName,
             card: replacedCard,
         });
-    
+
+        io.to(lobbyCode).emit('update_replaced_card', {
+            playerName,
+            replaceIndex,
+            newCard,
+        });
+
         // Move to the next turn
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
         lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
         const nextPlayer = turnOrder[lobby.turnIndex];
-    
+
         console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
-    
+
         io.to(lobbyCode).emit('next_turn', {
             currentPlayer: nextPlayer,
             nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
     });
+
+    socket.on('flip_card_back', (data) => {
+        const { lobbyCode, playerName, replaceIndex, wasDrawnFromDeck } = data;
     
+        io.to(lobbyCode).emit('flip_card_back', {
+            playerName,
+            replaceIndex,
+            wasDrawnFromDeck, // ✅ Ensure this flag is sent to clients
+        });
+    });
     
+
+
+
 
 });
 
