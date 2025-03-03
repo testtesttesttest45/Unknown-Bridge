@@ -529,17 +529,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       String playerName = data['playerName'];
       int replaceIndex = data['replaceIndex'];
       String newCard = data['newCard'];
+      bool wasDrawnFromDeck =
+          data['wasDrawnFromDeck'] ?? false; // ✅ Default to false
 
       if (playerHands.containsKey(playerName)) {
         setState(() {
-          playerHands[playerName]![replaceIndex]['card'] = newCard;
-
-          // Trigger a flip animation
-          _triggerCardFlip(playerName, replaceIndex, true);
+          playerHands[playerName]![replaceIndex] = {
+            'card':
+                (playerName == currentPlayer || !wasDrawnFromDeck)
+                    ? newCard // ✅ Show value to owner, but not others if from deck
+                    : "???", // ✅ Hide from others
+            'isFaceUp': !wasDrawnFromDeck, // ✅ Hide if drawn from deck
+          };
         });
 
         print(
-          "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex",
+          "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex (From Deck: $wasDrawnFromDeck)",
         );
       }
     });
@@ -547,14 +552,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     widget.socket.on('flip_card_back', (data) {
       String playerName = data['playerName'];
       int replaceIndex = data['replaceIndex'];
+      bool wasDrawnFromDeck = data['wasDrawnFromDeck'] ?? false;
 
       if (playerHands.containsKey(playerName)) {
         setState(() {
-          _triggerCardFlip(playerName, replaceIndex, false);
+          _triggerCardFlip(
+            playerName,
+            replaceIndex,
+            false,
+          ); // ✅ Flip card face down
         });
 
         print(
-          "🔄 (CLIENT) Flipped back replaced card for $playerName at index $replaceIndex",
+          "🔄 (CLIENT) Flipped back replaced card for $playerName at index $replaceIndex (Was from Deck: $wasDrawnFromDeck)",
         );
       }
     });
@@ -930,6 +940,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     if (_drawnCard == null) return;
 
     String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
+    bool wasDrawnFromDeck =
+        !_hasSelectedDiscard; // ✅ True if picked from center deck
 
     print(
       "🔄 (CLIENT) $currentPlayer replacing card at index $replaceIndex ($replacedCard) with $_drawnCard",
@@ -946,6 +958,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       'replacedCard': replacedCard,
       'newCard': _drawnCard,
       'replaceIndex': replaceIndex,
+      'wasDrawnFromDeck': wasDrawnFromDeck, // ✅ Send this flag to server
     });
 
     // ✅ Flip the replaced card back to face-down after a delay for **all players**
@@ -954,6 +967,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         'lobbyCode': widget.lobbyCode,
         'playerName': currentPlayer,
         'replaceIndex': replaceIndex,
+        'wasDrawnFromDeck':
+            wasDrawnFromDeck, // ✅ Send this flag to ensure proper flip
       });
     });
 
