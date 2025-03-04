@@ -60,6 +60,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       false; // 🔒 Prevents discard before animation is fully done
   bool _animationCompleted = false;
   bool _canCurrentPlayerReplace = false;
+  int _flipCounter = 0;
 
   @override
   void initState() {
@@ -530,19 +531,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       int replaceIndex = data['replaceIndex'];
       String newCard = data['newCard'];
       bool wasDrawnFromDeck =
-          data['wasDrawnFromDeck'] ?? false; // ✅ Default to false
+          data['wasDrawnFromDeck'] ?? false; // Default to false
 
       if (playerHands.containsKey(playerName)) {
         setState(() {
-          playerHands[playerName]![replaceIndex] = {
-            'card':
-                (playerName == currentPlayer || !wasDrawnFromDeck)
-                    ? newCard // ✅ Show value to owner, but not others if from deck
-                    : "???", // ✅ Hide from others
-            'isFaceUp': !wasDrawnFromDeck, // ✅ Hide if drawn from deck
-          };
+          // Update the card value only.
+          playerHands[playerName]![replaceIndex]['card'] =
+              (playerName == currentPlayer || !wasDrawnFromDeck)
+                  ? newCard
+                  : "???";
+          // Force the card to be face-up (without touching flipCounter)
+          playerHands[playerName]![replaceIndex]['isFaceUp'] = true;
+          // Do NOT update the flipCounter here.
         });
-
         print(
           "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex (From Deck: $wasDrawnFromDeck)",
         );
@@ -560,9 +561,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             playerName,
             replaceIndex,
             false,
-          ); // ✅ Flip card face down
+          ); // This sets isFaceUp to false and increments _flipCounter.
         });
-
         print(
           "🔄 (CLIENT) Flipped back replaced card for $playerName at index $replaceIndex (Was from Deck: $wasDrawnFromDeck)",
         );
@@ -778,6 +778,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   void _triggerCardFlip(String playerName, int cardIndex, bool faceUp) {
     setState(() {
       playerHands[playerName]?[cardIndex]['isFaceUp'] = faceUp;
+      // Increment the counter so that the key will change
+      _flipCounter++;
+      // Save the current counter in the card's data
+      playerHands[playerName]?[cardIndex]['flipCounter'] = _flipCounter;
     });
   }
 
@@ -942,8 +946,17 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               switchInCurve: Curves.easeInOut,
               child:
                   isFaceUp
-                      ? _buildCardFace(card, key: ValueKey('face_$card'))
-                      : _buildCardBack(key: ValueKey('back_$card')),
+                      ? _buildCardFace(
+                        card,
+                        key: ValueKey(
+                          'face_${card}_${cardData["flipCounter"] ?? 0}',
+                        ),
+                      )
+                      : _buildCardBack(
+                        key: ValueKey(
+                          'back_${card}_${cardData["flipCounter"] ?? 0}',
+                        ),
+                      ),
             ),
           ),
         ),
