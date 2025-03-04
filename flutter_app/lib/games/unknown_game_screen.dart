@@ -861,26 +861,46 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     String playerName, {
     bool vertical = false,
     double rotateCards = 0,
+    String? playerPosition, // 'left' or 'right'
+    bool reverseOrder = false,
   }) {
     final hand = playerHands[playerName] ?? [];
-    return hand.asMap().entries.map((entry) {
-      final index = entry.key;
-      final cardData = entry.value;
+    return List.generate(hand.length, (i) {
+      // Map the displayed index to the logical index.
+      final logicalIndex = reverseOrder ? (hand.length - 1 - i) : i;
+      final cardData = hand[logicalIndex];
       final card = cardData['card'];
       final isFaceUp = cardData['isFaceUp'];
-
       bool isCurrentPlayer = playerName == currentPlayer;
 
-      // ✅ Fix: Only allow replacement if animations are fully completed
       bool isSelectable =
           isCurrentPlayer &&
           _isSelectingReplacement &&
           _drawnCard != null &&
-          _animationCompleted && // ✅ Ensures animation is done
-          _canDiscard; // ✅ Ensures Discard button has appeared
+          _animationCompleted &&
+          _canDiscard;
+
+      // Determine blue border condition based on position:
+      bool addBlueBorder = false;
+      if (playerPosition == 'right' && hand.length >= 3 && logicalIndex == 0) {
+        addBlueBorder = true;
+      } else if (playerPosition == 'left' &&
+          hand.length >= 3 &&
+          logicalIndex == hand.length - 1) {
+        addBlueBorder = true;
+      }
+
+      // Use yellow border if selectable; otherwise blue if flagged.
+      BoxBorder? border;
+      if (isSelectable) {
+        border = Border.all(color: Colors.yellowAccent, width: 3);
+      } else if (addBlueBorder) {
+        border = Border.all(color: Colors.blue, width: 3);
+      }
 
       return GestureDetector(
-        onTap: isSelectable ? () => _handleReplaceCard(index) : null,
+        // Always use the logical index so that replacement events use the correct card.
+        onTap: isSelectable ? () => _handleReplaceCard(logicalIndex) : null,
         child: Container(
           width: vertical ? 65 : 45,
           height: vertical ? 45 : 65,
@@ -889,13 +909,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             right: vertical ? 0 : 4,
           ),
           decoration: BoxDecoration(
-            border:
-                isSelectable
-                    ? Border.all(
-                      color: Colors.yellowAccent,
-                      width: 3,
-                    ) // ✅ Yellow highlight only after animation
-                    : null,
+            border: border,
             borderRadius: BorderRadius.circular(8),
           ),
           child: RotatedBox(
@@ -934,7 +948,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           ),
         ),
       );
-    }).toList();
+    });
   }
 
   void _handleReplaceCard(int replaceIndex) {
@@ -1730,6 +1744,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                             playerName,
                             vertical: true,
                             rotateCards: isLeft ? pi / 2 : -pi / 2,
+                            playerPosition: isRight ? 'right' : 'left',
+                            // For right side, reverse the order; for left side, keep the natural order.
+                            reverseOrder: (isRight),
                           ),
                         ),
                         if (isRight)
