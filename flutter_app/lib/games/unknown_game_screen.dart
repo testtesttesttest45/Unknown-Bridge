@@ -919,8 +919,17 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           child: RotatedBox(
             quarterTurns: (rotateCards / (pi / 2)).round(),
             child: AnimatedSwitcher(
-              duration: Duration(milliseconds: 800),
+              duration:
+                  (playerPosition == 'right' &&
+                          (cardData["flipCounter"] ?? 0) == 0)
+                      ? Duration(milliseconds: 0)
+                      : Duration(milliseconds: 800),
               transitionBuilder: (Widget child, Animation<double> animation) {
+                // If the card hasn't been flipped yet (flipCounter is 0) on the right side,
+                // simply return the child without animating.
+                if (playerPosition == 'right' &&
+                    (cardData["flipCounter"] ?? 0) == 0)
+                  return child;
                 final rotateAnim = Tween(begin: pi, end: 0.0).animate(
                   CurvedAnimation(parent: animation, curve: Curves.easeInOut),
                 );
