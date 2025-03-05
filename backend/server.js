@@ -534,7 +534,6 @@ io.on('connection', (socket) => {
         if (!lobbies[lobbyCode].discardedCards) {
             lobbies[lobbyCode].discardedCards = [];
         }
-
         lobbies[lobbyCode].discardedCards.push({ playerName, card });
 
         // Broadcast to all players about the discarded card
@@ -543,37 +542,76 @@ io.on('connection', (socket) => {
             card,
         });
 
-        // Trigger reverse scale animation for all clients
+        // Trigger reverse scale animation for all clients if required
         if (animateReverse) {
             io.to(lobbyCode).emit('reset_deck_scale', {
                 playerName: playerName
             });
         }
 
-        // 🔥 Move to the next turn
+        // Check if the card is a face card with special ability (Jack in this case)
+        if (card.startsWith('J')) { // Modify as needed for other face cards
+            // Mark that Jack's ability is active so we do not proceed to next turn yet
+            lobbies[lobbyCode].jackAbilityActive = true;
+            // Optionally, notify the client that the Jack ability is now active
+            io.to(lobbies[lobbyCode].players.find(p => p.name === playerName).id)
+                .emit('jack_ability_active', { message: 'Select a card to reveal as your power.' });
+            // Do not move to next turn immediately
+            return;
+        }
+
+        // If not a Jack, move to the next turn immediately:
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
-
         if (turnOrder.length === 0) {
             console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
             return;
         }
-
-        // Initialize turnIndex if missing
         if (typeof lobby.turnIndex !== 'number') lobby.turnIndex = 0;
-
-        // Increment turn index and wrap around
         lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
         const nextPlayer = turnOrder[lobby.turnIndex];
 
         console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
-
-        // Emit the next_turn event to all players
         io.to(lobbyCode).emit('next_turn', {
             currentPlayer: nextPlayer,
             nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
     });
+
+    socket.on('jack_ability_complete', (data) => {
+        const { lobbyCode, playerName } = data;
+        const lobby = lobbies[lobbyCode];
+        if (!lobby) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        // Ensure the jack ability is active before proceeding
+        if (!lobby.jackAbilityActive) {
+            console.log(`⚠️ (SERVER) Jack ability not active for lobby ${lobbyCode}`);
+            return;
+        }
+
+        // Reset the jack ability flag
+        lobby.jackAbilityActive = false;
+
+        // Now, move to the next turn as normal:
+        const turnOrder = lobby.turnOrder || [];
+        if (turnOrder.length === 0) {
+            console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
+            return;
+        }
+        if (typeof lobby.turnIndex !== 'number') lobby.turnIndex = 0;
+        lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
+        const nextPlayer = turnOrder[lobby.turnIndex];
+
+        console.log(`➡️ (SERVER) Next turn after Jack ability: ${nextPlayer}`);
+        io.to(lobbyCode).emit('next_turn', {
+            currentPlayer: nextPlayer,
+            nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
+        });
+    });
+
 
     socket.on('reset_deck_scale', (data) => {
         const lobbyCode = data.lobbyCode;
@@ -689,70 +727,76 @@ io.on('connection', (socket) => {
 
     socket.on('replace_card', (data) => {
         const { lobbyCode, playerName, replacedCard, newCard, replaceIndex, wasDrawnFromDeck } = data;
-    
+
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             return;
         }
-    
+
         console.log(`🔄 (SERVER) ${playerName} replaced ${replacedCard} with ${newCard} (From Deck: ${wasDrawnFromDeck})`);
-    
+
         // Add the replaced card to the discard pile
         if (!lobbies[lobbyCode].discardedCards) {
             lobbies[lobbyCode].discardedCards = [];
         }
-    
+
         lobbies[lobbyCode].discardedCards.push({ playerName, card: replacedCard });
-    
+
         // Broadcast updated discard pile and new turn
         io.to(lobbyCode).emit('card_discarded', {
             playerName,
             card: replacedCard,
         });
-    
+
         io.to(lobbyCode).emit('update_replaced_card', {
             playerName,
             replaceIndex,
             newCard,
             wasDrawnFromDeck, // ✅ Ensure this flag is sent
         });
-    
+
         // Move to the next turn
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
         lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
         const nextPlayer = turnOrder[lobby.turnIndex];
-    
+
         console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
-    
+
         io.to(lobbyCode).emit('next_turn', {
             currentPlayer: nextPlayer,
             nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
     });
-    
+
 
     socket.on('flip_card_back', (data) => {
         const { lobbyCode, playerName, replaceIndex, wasDrawnFromDeck } = data;
-    
+
         io.to(lobbyCode).emit('flip_card_back', {
             playerName,
             replaceIndex,
             wasDrawnFromDeck, // ✅ Ensure this flag is sent to clients
         });
     });
-    
 
+
+    socket.on('jack_card_selected', (data) => {
+        const { lobbyCode, owner, cardIndex, selectingPlayer } = data;
+        // Broadcast to all clients in the lobby
+        io.to(lobbyCode).emit('jack_card_selected', { owner, cardIndex, selectingPlayer });
+    });
 
 
 
 });
 
 
+
 // Create a standard 52-card deck
 const createDeck = () => {
     const suits = ['♠', '♥', '♦', '♣'];
-    const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const values = ['2', '3', '4', 'J', 'J', 'J', 'J', 'J', 'J', 'J', 'Q', 'K', 'A'];
     const deck = [];
 
     suits.forEach(suit => {

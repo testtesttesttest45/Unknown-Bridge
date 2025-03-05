@@ -60,6 +60,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       false; // 🔒 Prevents discard before animation is fully done
   bool _animationCompleted = false;
   bool _canCurrentPlayerReplace = false;
+  int _flipCounter = 0;
 
   @override
   void initState() {
@@ -530,19 +531,19 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       int replaceIndex = data['replaceIndex'];
       String newCard = data['newCard'];
       bool wasDrawnFromDeck =
-          data['wasDrawnFromDeck'] ?? false; // ✅ Default to false
+          data['wasDrawnFromDeck'] ?? false; // Default to false
 
       if (playerHands.containsKey(playerName)) {
         setState(() {
-          playerHands[playerName]![replaceIndex] = {
-            'card':
-                (playerName == currentPlayer || !wasDrawnFromDeck)
-                    ? newCard // ✅ Show value to owner, but not others if from deck
-                    : "???", // ✅ Hide from others
-            'isFaceUp': !wasDrawnFromDeck, // ✅ Hide if drawn from deck
-          };
+          // Update the card value only.
+          playerHands[playerName]![replaceIndex]['card'] =
+              (playerName == currentPlayer || !wasDrawnFromDeck)
+                  ? newCard
+                  : "???";
+          // Force the card to be face-up (without touching flipCounter)
+          playerHands[playerName]![replaceIndex]['isFaceUp'] = true;
+          // Do NOT update the flipCounter here.
         });
-
         print(
           "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex (From Deck: $wasDrawnFromDeck)",
         );
@@ -560,9 +561,8 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             playerName,
             replaceIndex,
             false,
-          ); // ✅ Flip card face down
+          ); // This sets isFaceUp to false and increments _flipCounter.
         });
-
         print(
           "🔄 (CLIENT) Flipped back replaced card for $playerName at index $replaceIndex (Was from Deck: $wasDrawnFromDeck)",
         );
@@ -605,179 +605,13 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
   }
 
-  void _showLogMessage(String message) {
-    // Cancel any ongoing animations immediately
-    logMessageController.stop();
-    logMessageController.reset();
-
-    // Clear the existing message first
-    if (mounted) {
-      setState(() {
-        logMessage = null;
-      });
-    }
-
-    // Allow a small delay to ensure old message is fully removed
-    Future.delayed(Duration(milliseconds: 50), () {
-      if (mounted) {
-        setState(() {
-          logMessage = message;
-        });
-
-        // Start fade-in animation
-        logMessageController.forward();
-
-        // Start a new full 5-second timer
-        Future.delayed(Duration(seconds: 5), () {
-          if (mounted && logMessage == message) {
-            logMessageController.reverse().then((_) {
-              if (mounted && logMessage == message) {
-                setState(() {
-                  logMessage =
-                      null; // Clear the message only if it's still the same one
-                });
-              }
-            });
-          }
-        });
-      }
-    });
-  }
-
-  void _flipAllCards() async {
-    print("🎬 (DEBUG) Flipping only current player's left and right cards...");
-
-    // Start countdown
-    setState(() {
-      revealCountdown = 2;
-    });
-
-    await Future.delayed(Duration(seconds: 1));
-    setState(() {
-      revealCountdown = 1;
-    });
-
-    await Future.delayed(Duration(seconds: 1));
-    setState(() {
-      revealCountdown = 0; // Show "0" before flipping
-    });
-
-    await Future.delayed(Duration(seconds: 1)); // Pause at "0"
-    setState(() {
-      revealCountdown = null; // Remove countdown text
-    });
-
-    // Reveal only left and right cards for current player
-    final currentHand = playerHands[currentPlayer];
-
-    if (currentHand != null && currentHand.length >= 3) {
-      // Assuming cards are ordered as [left, center, right]
-      final leftCardIndex = 0;
-      final rightCardIndex = 2;
-
-      // Trigger flip animation for left and right cards
-      _triggerCardFlip(currentPlayer, leftCardIndex, true); // Flip face-up
-      _triggerCardFlip(currentPlayer, rightCardIndex, true); // Flip face-up
-
-      print("🔄 (DEBUG) Revealed left and right cards for $currentPlayer");
-
-      // Wait 2 seconds before flipping them back face-down
-      await Future.delayed(Duration(seconds: 2));
-
-      // Flip cards back
-      _triggerCardFlip(currentPlayer, leftCardIndex, false); // Flip face-down
-      _triggerCardFlip(currentPlayer, rightCardIndex, false); // Flip face-down
-
-      print("🔄 (DEBUG) Flipped back left and right cards for $currentPlayer");
-
-      // Wait 2 seconds before starting wheelspin
-      await Future.delayed(Duration(seconds: 2));
-
-      // Start Wheelspin
-      setState(() {
-        isWheelSpinning = true;
-        wheelWinner = null;
-      });
-
-      // Emit spin_wheel event to server
-      widget.socket.emit('spin_wheel', {'lobbyCode': widget.lobbyCode});
-    } else {
-      print("⚠️ (DEBUG) Not enough cards to reveal for $currentPlayer");
-    }
-  }
-
-  Widget _buildWheelSpin() {
-    return (isWheelSpinning || (showWheel && wheelWinner != null))
-        ? Positioned.fill(
-          child: Container(
-            color: Colors.black.withValues(alpha: 0.7),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (showWheel) // Only show wheel if showWheel is true
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Transform.rotate(
-                          angle: wheelRotation,
-                          child: Container(
-                            width: 250,
-                            height: 250,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                            ),
-                            child: Stack(
-                              children: List.generate(players.length, (index) {
-                                final angle = (2 * pi / players.length) * index;
-                                return Transform.rotate(
-                                  angle: angle,
-                                  child: Align(
-                                    alignment: Alignment.topCenter,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 10),
-                                      child: Text(
-                                        players[index],
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color:
-                                              Colors.primaries[index %
-                                                  Colors.primaries.length],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ),
-                        Icon(Icons.arrow_drop_up, size: 50, color: Colors.red),
-                      ],
-                    ),
-                  SizedBox(height: 20),
-                  if (showWinnerText && wheelWinner != null)
-                    Text(
-                      '🎉 Winner: $wheelWinner 🎉',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.yellowAccent,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        )
-        : SizedBox.shrink();
-  }
-
   void _triggerCardFlip(String playerName, int cardIndex, bool faceUp) {
     setState(() {
       playerHands[playerName]?[cardIndex]['isFaceUp'] = faceUp;
+      // Increment the counter so that the key will change
+      _flipCounter++;
+      // Save the current counter in the card's data
+      playerHands[playerName]?[cardIndex]['flipCounter'] = _flipCounter;
     });
   }
 
@@ -880,22 +714,10 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           _animationCompleted &&
           _canDiscard;
 
-      // Determine blue border condition based on position:
-      bool addBlueBorder = false;
-      if (playerPosition == 'right' && hand.length >= 3 && logicalIndex == 0) {
-        addBlueBorder = true;
-      } else if (playerPosition == 'left' &&
-          hand.length >= 3 &&
-          logicalIndex == hand.length - 1) {
-        addBlueBorder = true;
-      }
-
       // Use yellow border if selectable; otherwise blue if flagged.
       BoxBorder? border;
       if (isSelectable) {
         border = Border.all(color: Colors.yellowAccent, width: 3);
-      } else if (addBlueBorder) {
-        border = Border.all(color: Colors.blue, width: 3);
       }
 
       return GestureDetector(
@@ -915,8 +737,17 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           child: RotatedBox(
             quarterTurns: (rotateCards / (pi / 2)).round(),
             child: AnimatedSwitcher(
-              duration: Duration(milliseconds: 800),
+              duration:
+                  (playerPosition == 'right' &&
+                          (cardData["flipCounter"] ?? 0) == 0)
+                      ? Duration(milliseconds: 0)
+                      : Duration(milliseconds: 800),
               transitionBuilder: (Widget child, Animation<double> animation) {
+                // If the card hasn't been flipped yet (flipCounter is 0) on the right side,
+                // simply return the child without animating.
+                if (playerPosition == 'right' &&
+                    (cardData["flipCounter"] ?? 0) == 0)
+                  return child;
                 final rotateAnim = Tween(begin: pi, end: 0.0).animate(
                   CurvedAnimation(parent: animation, curve: Curves.easeInOut),
                 );
@@ -942,70 +773,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               switchInCurve: Curves.easeInOut,
               child:
                   isFaceUp
-                      ? _buildCardFace(card, key: ValueKey('face_$card'))
-                      : _buildCardBack(key: ValueKey('back_$card')),
+                      ? _buildCardFace(
+                        card,
+                        key: ValueKey(
+                          'face_${card}_${cardData["flipCounter"] ?? 0}',
+                        ),
+                      )
+                      : _buildCardBack(
+                        key: ValueKey(
+                          'back_${card}_${cardData["flipCounter"] ?? 0}',
+                        ),
+                      ),
             ),
           ),
         ),
       );
     });
-  }
-
-  void _handleReplaceCard(int replaceIndex) {
-    if (_drawnCard == null) return;
-
-    String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
-    bool wasDrawnFromDeck =
-        !_hasSelectedDiscard; // ✅ True if picked from center deck
-
-    print(
-      "🔄 (CLIENT) $currentPlayer replacing card at index $replaceIndex ($replacedCard) with $_drawnCard",
-    );
-
-    setState(() {
-      playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
-    });
-
-    // Emit replacement event to server
-    widget.socket.emit('replace_card', {
-      'lobbyCode': widget.lobbyCode,
-      'playerName': currentPlayer,
-      'replacedCard': replacedCard,
-      'newCard': _drawnCard,
-      'replaceIndex': replaceIndex,
-      'wasDrawnFromDeck': wasDrawnFromDeck, // ✅ Send this flag to server
-    });
-
-    // ✅ Flip the replaced card back to face-down after a delay for **all players**
-    Future.delayed(Duration(seconds: 2), () {
-      widget.socket.emit('flip_card_back', {
-        'lobbyCode': widget.lobbyCode,
-        'playerName': currentPlayer,
-        'replaceIndex': replaceIndex,
-        'wasDrawnFromDeck':
-            wasDrawnFromDeck, // ✅ Send this flag to ensure proper flip
-      });
-    });
-
-    // ✅ Ensure the deck scale reset only happens if the deck was used
-    if (!_hasSelectedDiscard) {
-      widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
-    }
-
-    // Reset interaction states
-    setState(() {
-      _drawnCard = null;
-      _isCardFlipped = false;
-      showCardEffect = false;
-      _isSelectingReplacement = false;
-      _selectedReplacementIndex = null;
-      _hasSelectedDiscard = false;
-      _hasSelectedDeck = false;
-      _showUndoSelection = false;
-      _canInteractWithDeck = true;
-    });
-
-    _showLogMessage("$currentPlayer replaced $replacedCard with a new card.");
   }
 
   void _handleDeckTap() {
@@ -1034,56 +817,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
 
     _startCardDrawAnimation();
-  }
-
-  void _handleDiscardedCardTap(Map<String, dynamic> cardData) {
-    if (currentPlayer != wheelWinner) return;
-
-    print("🃏 (CLIENT) Tapped on discarded card: ${cardData['card']}");
-
-    setState(() {
-      for (var card in discardedCards) {
-        card['isSelected'] = false;
-      }
-
-      cardData['isSelected'] = true;
-      _hasSelectedDiscard = true; // ✅ Ensure discard flag is set properly
-      _hasSelectedDeck = false;
-      _canInteractWithDeck = false;
-      _showSkipButton = true;
-      _showUndoSelection = true;
-      _drawnCard = cardData['card'];
-      _isSelectingReplacement = true;
-    });
-
-    widget.socket.emit('discard_pile_card_selected', {
-      'lobbyCode': widget.lobbyCode,
-      'card': cardData['card'],
-    });
-
-    _showLogMessage(
-      "Tap on a hand card to replace it with ${cardData['card']}",
-    );
-  }
-
-  void _handleUndoSelection() {
-    print("↩️ (CLIENT) Undo selection");
-
-    setState(() {
-      for (var card in discardedCards) {
-        card['isSelected'] = false;
-      }
-
-      _hasSelectedDiscard = false;
-      _hasSelectedDeck = false;
-      _canInteractWithDeck = true; // 🔥 Restore deck interaction
-      _showSkipButton = true; // ✅ Restore Skip after undo
-      _showUndoSelection = false; // ✅ Hide Undo Selection
-      _drawnCard = null; // ✅ Clear the selected discarded card
-      _isSelectingReplacement = false; // ✅ Prevent replacement mode
-    });
-
-    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
   }
 
   /// **Builds deck at the center with animating cards**
@@ -1333,33 +1066,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         }).toList(),
       ],
     );
-  }
-
-  void _handleSkipTurn() {
-    if (currentPlayer != wheelWinner)
-      return; // ✅ Ensure only the current player can click Skip
-
-    print("🚫 (CLIENT) $currentPlayer skipped their turn");
-
-    setState(() {
-      _showSkipButton = false; // ✅ Hide Skip button after clicking
-
-      // 🔥 Reset discarded card zoom
-      for (var card in discardedCards) {
-        card['isSelected'] = false;
-      }
-    });
-
-    // Broadcast the reset to ALL clients
-    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
-
-    // Emit skip turn event
-    widget.socket.emit('skip_turn', {
-      'lobbyCode': widget.lobbyCode,
-      'playerName': currentPlayer,
-    });
-
-    _showLogMessage("$currentPlayer skipped their turn.");
   }
 
   void _startCardDrawAnimation() {
@@ -1952,5 +1658,73 @@ class RotationYTransition extends StatelessWidget {
       },
       child: child,
     );
+  }
+}
+
+
+/// Base class for face card abilities.
+/// Later you might add more common methods or properties for Queens and Kings.
+abstract class FaceCardAbility {
+  final String card;
+  
+  FaceCardAbility(this.card);
+
+  /// Returns true if the drawn card is one that should use a face ability.
+  bool isFaceCard() {
+    // For simplicity, check if the card starts with J, Q, or K.
+    return ['J'].any((face) => card.startsWith(face));
+  }
+
+  /// Activate the face card’s power.
+  /// The implementation should update the UI accordingly.
+  void activate();
+}
+
+/// Implements Jack’s ability: after drawing a Jack from the center deck,
+/// the “Use Power” action will highlight all cards in the player's hand,
+/// making them selectable.
+class JackAbility extends FaceCardAbility {
+  /// Callback when a hand card is selected.
+  /// The [selectedIndex] indicates which card was picked.
+  final void Function(int selectedIndex) onCardSelected;
+  
+  /// Callback to trigger the flip animation locally.
+  /// This method should start a 2-second flip and then revert.
+  final void Function(int selectedIndex) triggerLocalFlip;
+
+  /// A reference to the player’s hand data (each card is represented as a map).
+  /// For example, each card map might include a flag like 'isSelectable'.
+  final List<Map<String, dynamic>> playerHand;
+
+  JackAbility({
+    required String card,
+    required this.onCardSelected,
+    required this.triggerLocalFlip,
+    required this.playerHand,
+  }) : super(card);
+
+  @override
+  void activate() {
+    // Mark each card in the player's hand as selectable.
+    // In your UI, check for card['isSelectable'] to show a yellow outline.
+    for (var cardData in playerHand) {
+      cardData['isSelectable'] = true;
+    }
+    // Optionally trigger a UI update (e.g. via setState in your widget).
+
+    // The UI should now allow the user to tap on one of these highlighted cards.
+    // When tapped, call the [onCardSelected] callback with the index.
+  }
+
+  /// Call this when the player has selected a card (from the yellow-outlined options).
+  void handleCardSelection(int selectedIndex) {
+    // Remove the selectable flag so that the UI resets the outline.
+    for (var cardData in playerHand) {
+      cardData['isSelectable'] = false;
+    }
+    // Trigger the local flip animation: flip for 2 seconds then revert.
+    triggerLocalFlip(selectedIndex);
+    // Notify that the card was selected (and any further processing can occur).
+    onCardSelected(selectedIndex);
   }
 }

@@ -61,6 +61,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   bool _animationCompleted = false;
   bool _canCurrentPlayerReplace = false;
   int _flipCounter = 0;
+  bool _jackAbilityActive = false;
+  Map<String, dynamic>? _jackSelectedCard;
+  bool _jackCardSelected = false;
 
   @override
   void initState() {
@@ -568,6 +571,45 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         );
       }
     });
+
+    widget.socket.on('jack_ability_active', (data) {
+      if (mounted) {
+        setState(() {
+          _jackAbilityActive = true;
+        });
+      }
+    });
+
+    // Listen for when another client (or yourself) selects a card via Jack ability.
+    widget.socket.on('jack_card_selected', (data) {
+      // If this client is NOT the one who selected the card…
+      if (data['selectingPlayer'] != currentPlayer) {
+        setState(() {
+          _jackSelectedCard = {
+            'owner': data['owner'],
+            'index': data['cardIndex'],
+            'selectingPlayer': data['selectingPlayer'],
+          };
+          // Mark the targeted card as flipping on this client.
+          if (playerHands[data['owner']] != null) {
+            playerHands[data['owner']]![data['cardIndex']]['isJackFlipping'] =
+                true;
+          }
+        });
+        Future.delayed(Duration(seconds: 2), () {
+          setState(() {
+            if (playerHands[data['owner']] != null) {
+              playerHands[data['owner']]![data['cardIndex']]['isJackFlipping'] =
+                  false;
+              // Also, flip the card back face-down.
+              playerHands[data['owner']]?[data['cardIndex']]['isFaceUp'] =
+                  false;
+            }
+            _jackSelectedCard = null;
+          });
+        });
+      }
+    });
   }
 
   void _flipDrawnCard() {
@@ -894,7 +936,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         addBlueBorder = true;
       }
 
-      // Use yellow border if selectable; otherwise blue if flagged.
       BoxBorder? border;
       if (isSelectable) {
         border = Border.all(color: Colors.yellowAccent, width: 3);
@@ -902,9 +943,72 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         border = Border.all(color: Colors.blue, width: 3);
       }
 
+      // Check if this card is the one selected via Jack ability.
+      bool isSelectedCard = false;
+      if (_jackSelectedCard != null) {
+        if (_jackSelectedCard!['owner'] == playerName &&
+            _jackSelectedCard!['index'] == logicalIndex) {
+          isSelectedCard = true;
+        }
+      }
+
+      // Determine the widget to display.
+      Widget cardWidget;
+      if (isSelectedCard) {
+        // If this card is selected, show its true value if the current client is the selecting client;
+        // otherwise, show "???".
+        if (currentPlayer == _jackSelectedCard!['selectingPlayer']) {
+          cardWidget = _buildCardFace(
+            card,
+            key: ValueKey('jack_face_${card}_${logicalIndex}'),
+          );
+        } else {
+          cardWidget = _buildCardFace(
+            "???",
+            key: ValueKey('jack_hidden_${card}_${logicalIndex}'),
+          );
+        }
+      } else {
+        // Use your existing logic for non-selected cards.
+        bool isTemporarilyRevealed = cardData['isTemporarilyRevealed'] ?? false;
+        bool isJackFlipping = cardData['isJackFlipping'] ?? false;
+        if (isTemporarilyRevealed && playerName == currentPlayer) {
+          cardWidget = _buildCardFace(
+            card,
+            key: ValueKey('temp_${card}_${logicalIndex}'),
+          );
+        } else if (isJackFlipping &&
+            currentPlayer != _jackSelectedCard?['selectingPlayer']) {
+          cardWidget = _buildCardBack(
+            key: ValueKey('flip_${card}_${logicalIndex}'),
+          );
+        } else {
+          cardWidget =
+              isFaceUp
+                  ? _buildCardFace(
+                    card,
+                    key: ValueKey(
+                      'face_${card}_${cardData["flipCounter"] ?? 0}',
+                    ),
+                  )
+                  : _buildCardBack(
+                    key: ValueKey(
+                      'back_${card}_${cardData["flipCounter"] ?? 0}',
+                    ),
+                  );
+        }
+      }
+
       return GestureDetector(
-        // Always use the logical index so that replacement events use the correct card.
-        onTap: isSelectable ? () => _handleReplaceCard(logicalIndex) : null,
+        // When Jack ability is active, allow tapping any card.
+        onTap:
+            _jackAbilityActive
+                ? () => _handleJackCardSelection(playerName, logicalIndex)
+                : (isCurrentPlayer
+                    ? (isSelectable
+                        ? () => _handleReplaceCard(logicalIndex)
+                        : null)
+                    : null),
         child: Container(
           width: vertical ? 65 : 45,
           height: vertical ? 45 : 65,
@@ -913,7 +1017,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             right: vertical ? 0 : 4,
           ),
           decoration: BoxDecoration(
-            border: border,
+            // If Jack ability is active, enforce a yellow border.
+            border:
+                _jackAbilityActive
+                    ? Border.all(color: Colors.yellowAccent, width: 3)
+                    : border,
             borderRadius: BorderRadius.circular(8),
           ),
           child: RotatedBox(
@@ -925,8 +1033,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                       ? Duration(milliseconds: 0)
                       : Duration(milliseconds: 800),
               transitionBuilder: (Widget child, Animation<double> animation) {
-                // If the card hasn't been flipped yet (flipCounter is 0) on the right side,
-                // simply return the child without animating.
                 if (playerPosition == 'right' &&
                     (cardData["flipCounter"] ?? 0) == 0)
                   return child;
@@ -953,23 +1059,57 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               layoutBuilder:
                   (widget, list) => Stack(children: [widget!, ...list]),
               switchInCurve: Curves.easeInOut,
-              child:
-                  isFaceUp
-                      ? _buildCardFace(
-                        card,
-                        key: ValueKey(
-                          'face_${card}_${cardData["flipCounter"] ?? 0}',
-                        ),
-                      )
-                      : _buildCardBack(
-                        key: ValueKey(
-                          'back_${card}_${cardData["flipCounter"] ?? 0}',
-                        ),
-                      ),
+              child: cardWidget,
             ),
           ),
         ),
       );
+    });
+  }
+
+  void _handleJackCardSelection(String owner, int index) {
+    if (_jackCardSelected) return;
+    _jackCardSelected = true;
+
+    // Save selection details for all clients.
+    setState(() {
+      _jackSelectedCard = {
+        'owner': owner,
+        'index': index,
+        'selectingPlayer':
+            currentPlayer, // always the current client who initiated the selection
+      };
+      // Mark the target card as flipping on our client.
+      if (playerHands[owner] != null) {
+        playerHands[owner]![index]['isJackFlipping'] = true;
+      }
+    });
+
+    // Emit the selection event including selectingPlayer.
+    widget.socket.emit('jack_card_selected', {
+      'lobbyCode': widget.lobbyCode,
+      'owner': owner,
+      'cardIndex': index,
+      'selectingPlayer': currentPlayer,
+    });
+
+    // After 2 seconds, reset the target card back to normal.
+    Future.delayed(Duration(seconds: 2), () {
+      setState(() {
+        _jackAbilityActive = false;
+        _jackCardSelected = false;
+        // Reset the target card's flip state.
+        if (playerHands[owner] != null) {
+          playerHands[owner]![index]['isJackFlipping'] = false;
+          // Also, flip the card back face-down.
+          playerHands[owner]?[index]['isFaceUp'] = false;
+        }
+        _jackSelectedCard = null;
+      });
+      widget.socket.emit('jack_ability_complete', {
+        'lobbyCode': widget.lobbyCode,
+        'playerName': currentPlayer,
+      });
     });
   }
 
@@ -1849,19 +1989,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               _drawnCard != null &&
               _isCardFlipped &&
               _canDiscard &&
-              _animationCompleted && // ✅ Ensures button only appears after full animation
+              _animationCompleted &&
               currentPlayer == wheelWinner)
             Positioned(
               bottom: 150,
               left: MediaQuery.of(context).size.width / 2 - 50,
               child: ElevatedButton(
-                onPressed: _handleDiscard,
+                onPressed:
+                    _drawnCard!.startsWith('J')
+                        ? _handleJackUsePower
+                        : _handleDiscard,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
                 child: Text(
-                  'Discard',
+                  _drawnCard!.startsWith('J') ? 'Use Power' : 'Discard',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -1908,6 +2051,23 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         ],
       ),
     );
+  }
+
+  void _handleJackUsePower() {
+    // Discard the drawn Jack card (server will set its own flag)
+    widget.socket.emit('discard_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+      'card': _drawnCard,
+      'animateReverse': true,
+    });
+    // Activate Jack ability on this client so hand cards become selectable
+    setState(() {
+      _jackAbilityActive = true;
+      // Clear the drawn card so that the "Use Power" button disappears.
+      _drawnCard = null;
+      _showSkipButton = false;
+    });
   }
 }
 
