@@ -549,18 +549,25 @@ io.on('connection', (socket) => {
             });
         }
 
-        // Check if the card is a face card with special ability (Jack in this case)
-        if (card.startsWith('J')) { // Modify as needed for other face cards
-            // Mark that Jack's ability is active so we do not proceed to next turn yet
+        // Check if the card is a face card with special ability:
+        if (card.startsWith('J')) {
+            // Activate Jack ability
             lobbies[lobbyCode].jackAbilityActive = true;
-            // Optionally, notify the client that the Jack ability is now active
             io.to(lobbies[lobbyCode].players.find(p => p.name === playerName).id)
                 .emit('jack_ability_active', { message: 'Select a card to reveal as your power.' });
-            // Do not move to next turn immediately
+            return;
+        } else if (card.startsWith('Q')) {
+            // Activate Queen ability: player must select two cards to swap
+            lobbies[lobbyCode].queenAbilityActive = true;
+            // Initialize an empty array to store the two selections
+            lobbies[lobbyCode].queenSelections = [];
+            io.to(lobbies[lobbyCode].players.find(p => p.name === playerName).id)
+                .emit('queen_ability_active', { message: 'Select 2 cards to swap.' });
+            // Do not advance the turn until the Queen ability is resolved
             return;
         }
 
-        // If not a Jack, move to the next turn immediately:
+        // If not a face card with special ability, move to next turn immediately:
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
         if (turnOrder.length === 0) {
@@ -577,6 +584,68 @@ io.on('connection', (socket) => {
             nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
     });
+
+    // Handle Queen card selections (similar to the Jack selection):
+    socket.on('queen_card_selected', (data) => {
+        const { lobbyCode, owner, cardIndex, selectingPlayer } = data;
+        const lobby = lobbies[lobbyCode];
+        if (!lobby) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+
+        // Ensure the Queen ability is active
+        if (!lobby.queenAbilityActive) {
+            console.log(`⚠️ (SERVER) Queen ability not active for lobby ${lobbyCode}`);
+            return;
+        }
+
+        // Initialize the queenSelections array if it doesn't exist
+        if (!lobby.queenSelections) {
+            lobby.queenSelections = [];
+        }
+
+        // Prevent selecting more than 2 cards
+        if (lobby.queenSelections.length >= 2) {
+            console.log(`⚠️ (SERVER) Already received 2 selections for Queen ability in lobby ${lobbyCode}`);
+            return;
+        }
+
+        lobby.queenSelections.push({ owner, cardIndex, selectingPlayer });
+        console.log(`👑 (SERVER) Queen card selected: cardIndex ${cardIndex} from ${owner} by ${selectingPlayer}`);
+
+        // Broadcast the selection to all clients (so they can highlight the card)
+        io.to(lobbyCode).emit('queen_card_selected', { owner, cardIndex, selectingPlayer });
+
+        // Once two selections have been made, trigger the swap animation
+        if (lobby.queenSelections.length === 2) {
+            // Broadcast the swap details so all clients can animate the swap
+            io.to(lobbyCode).emit('queen_swap', { selections: lobby.queenSelections });
+
+            // Reset Queen ability state
+            lobby.queenAbilityActive = false;
+            lobby.queenSelections = [];
+
+            // Optionally delay advancing the turn to let swap animations complete
+            setTimeout(() => {
+                const turnOrder = lobby.turnOrder || [];
+                if (turnOrder.length === 0) {
+                    console.log(`⚠️ (SERVER) No turn order found for lobby ${lobbyCode}`);
+                    return;
+                }
+                if (typeof lobby.turnIndex !== 'number') lobby.turnIndex = 0;
+                lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
+                const nextPlayer = turnOrder[lobby.turnIndex];
+
+                console.log(`➡️ (SERVER) Next turn after Queen ability: ${nextPlayer}`);
+                io.to(lobbyCode).emit('next_turn', {
+                    currentPlayer: nextPlayer,
+                    nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
+                });
+            }, 1200); // Delay to allow swap animation to complete (adjust as needed)
+        }
+    });
+
 
     socket.on('jack_ability_complete', (data) => {
         const { lobbyCode, playerName } = data;
@@ -796,7 +865,7 @@ io.on('connection', (socket) => {
 // Create a standard 52-card deck
 const createDeck = () => {
     const suits = ['♠', '♥', '♦', '♣'];
-    const values = ['2', '3', '4', 'J', 'J', 'J', 'J', 'J', 'J', 'J', 'Q', 'K', 'A'];
+    const values = ['2', '3', 'J', 'J', 'J', 'J', 'J', 'Q', 'Q', 'J', 'Q', 'K', 'A'];
     const deck = [];
 
     suits.forEach(suit => {
