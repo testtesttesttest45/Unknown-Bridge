@@ -66,6 +66,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   bool _jackCardSelected = false;
   bool _queenAbilityActive = false;
   Map<String, GlobalKey> cardWidgetKeys = {};
+  List<Map<String, dynamic>> _myQueenSelections = [];
 
   @override
   void initState() {
@@ -640,16 +641,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                 true;
           }
         });
-        // Remove the highlight after a short delay
-        Future.delayed(Duration(seconds: 2), () {
-          setState(() {
-            if (playerHands[data['owner']] != null &&
-                playerHands[data['owner']]!.length > data['cardIndex']) {
-              playerHands[data['owner']]![data['cardIndex']]['isQueenSelected'] =
-                  false;
-            }
-          });
-        });
       }
     });
 
@@ -662,23 +653,60 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         _queenAbilityActive = false;
       });
     });
+
+    widget.socket.on('queen_card_unselected', (data) {
+      String owner = data['owner'];
+      int cardIndex = data['cardIndex'];
+      setState(() {
+        if (playerHands[owner] != null &&
+            playerHands[owner]!.length > cardIndex) {
+          playerHands[owner]![cardIndex]['isQueenSelected'] = false;
+        }
+      });
+    });
   }
 
   void _handleQueenCardSelection(String owner, int index) {
-    // Prevent selecting the same card twice.
-    if (playerHands[owner]?[index]['isQueenSelected'] == true) return;
+    // Check the current selection state of the card.
+    bool isSelected = playerHands[owner]?[index]['isQueenSelected'] ?? false;
 
-    // Mark the card as selected on this client
-    setState(() {
-      playerHands[owner]![index]['isQueenSelected'] = true;
-    });
-    // Emit the selection to the server
-    widget.socket.emit('queen_card_selected', {
-      'lobbyCode': widget.lobbyCode,
-      'owner': owner,
-      'cardIndex': index,
-      'selectingPlayer': currentPlayer,
-    });
+    if (isSelected) {
+      // If already selected, unselect it.
+      setState(() {
+        playerHands[owner]![index]['isQueenSelected'] = false;
+      });
+      // Remove from our local selection list.
+      _myQueenSelections.removeWhere(
+        (sel) => sel['owner'] == owner && sel['index'] == index,
+      );
+      // Emit unselection event so that all clients update their UI.
+      widget.socket.emit('queen_card_unselected', {
+        'lobbyCode': widget.lobbyCode,
+        'owner': owner,
+        'cardIndex': index,
+        'selectingPlayer': currentPlayer,
+      });
+    } else {
+      // Otherwise, select the card.
+      setState(() {
+        playerHands[owner]![index]['isQueenSelected'] = true;
+      });
+      // Add to our local list.
+      _myQueenSelections.add({'owner': owner, 'index': index});
+      // Emit selection event to inform all clients.
+      widget.socket.emit('queen_card_selected', {
+        'lobbyCode': widget.lobbyCode,
+        'owner': owner,
+        'cardIndex': index,
+        'selectingPlayer': currentPlayer,
+      });
+      // If this makes 2 selections, trigger the swap.
+      if (_myQueenSelections.length == 2) {
+        widget.socket.emit('queen_swap', {'selections': _myQueenSelections});
+        // Clear local selections (the server will also clear the flags after swap).
+        _myQueenSelections.clear();
+      }
+    }
   }
 
   /// Called when the server emits a queen_swap event.
@@ -1073,8 +1101,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       // Map the displayed index to the logical index.
       final logicalIndex = reverseOrder ? (hand.length - 1 - i) : i;
       // Cast the card data to non-nullable type.
-      final Map<String, dynamic> cardData =
-          hand[logicalIndex];
+      final Map<String, dynamic> cardData = hand[logicalIndex];
       final card = cardData['card'];
       final isFaceUp = cardData['isFaceUp'];
       bool isCurrentPlayer = playerName == currentPlayer;
@@ -1220,7 +1247,14 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     },
                   );
                 },
-                child: cardWidget,
+                child: Stack(
+                  children: [
+                    cardWidget,
+                    // If the card is selected via queen ability, overlay a dark tint.
+                    if (cardData['isQueenSelected'] == true)
+                      Container(color: Colors.black.withOpacity(0.3)),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1275,53 +1309,53 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
 
     String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
     bool wasDrawnFromDeck =
-        !_hasSelectedDiscard; // ✅ True if picked from center deck
+        !_hasSelectedDiscard; // True if picked from center deck
 
     print(
       "🔄 (CLIENT) $currentPlayer replacing card at index $replaceIndex ($replacedCard) with $_drawnCard",
     );
 
+    // Update the card data: set new card value, mark it as face-up, and update flip counter.
     setState(() {
       playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
+      // Set it face-up to show the new card.
+      playerHands[currentPlayer]![replaceIndex]['isFaceUp'] = true;
+      _flipCounter++;
+      playerHands[currentPlayer]![replaceIndex]['flipCounter'] = _flipCounter;
     });
 
-    // Emit replacement event to server
+    // Emit the replacement event to the server.
     widget.socket.emit('replace_card', {
       'lobbyCode': widget.lobbyCode,
       'playerName': currentPlayer,
       'replacedCard': replacedCard,
       'newCard': _drawnCard,
       'replaceIndex': replaceIndex,
-      'wasDrawnFromDeck': wasDrawnFromDeck, // ✅ Send this flag to server
+      'wasDrawnFromDeck': wasDrawnFromDeck,
     });
 
-    // ✅ Flip the replaced card back to face-down after a delay for **all players**
-    Future.delayed(Duration(seconds: 2), () {
-      widget.socket.emit('flip_card_back', {
-        'lobbyCode': widget.lobbyCode,
-        'playerName': currentPlayer,
-        'replaceIndex': replaceIndex,
-        'wasDrawnFromDeck':
-            wasDrawnFromDeck, // ✅ Send this flag to ensure proper flip
-      });
+    // After a short delay, trigger a flip-back animation so the card flips face-down.
+    Future.delayed(Duration(seconds: 1), () {
+      _triggerCardFlip(currentPlayer, replaceIndex, false);
     });
 
-    // ✅ Ensure the deck scale reset only happens if the deck was used
+    // If the deck was used, emit a deck scale reset.
     if (!_hasSelectedDiscard) {
       widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
     }
 
-    // Reset interaction states
-    setState(() {
-      _drawnCard = null;
-      _isCardFlipped = false;
-      showCardEffect = false;
-      _isSelectingReplacement = false;
-      _selectedReplacementIndex = null;
-      _hasSelectedDiscard = false;
-      _hasSelectedDeck = false;
-      _showUndoSelection = false;
-      _canInteractWithDeck = true;
+    // Reset interaction states after a short delay to allow the animation to complete.
+    Future.delayed(Duration(seconds: 1), () {
+      setState(() {
+        _drawnCard = null;
+        showCardEffect = false;
+        _isSelectingReplacement = false;
+        _selectedReplacementIndex = null;
+        _hasSelectedDiscard = false;
+        _hasSelectedDeck = false;
+        _showUndoSelection = false;
+        _canInteractWithDeck = true;
+      });
     });
 
     _showLogMessage("$currentPlayer replaced $replacedCard with a new card.");
@@ -1775,9 +1809,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     // Only restore interactivity if Jack ability is not active
                     if (!_jackAbilityActive) {
                       _canInteractWithDeck = true;
+                      _showSkipButton = true;
                       print("✅ (DEBUG) Deck interaction restored.");
                     } else {
                       _canInteractWithDeck = false;
+                      _showSkipButton = false;
                     }
                   });
                 }
@@ -2173,7 +2209,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               left: MediaQuery.of(context).size.width / 2 - 50,
               child: ElevatedButton(
                 onPressed:
-                    _drawnCard!.startsWith('J') || _drawnCard!.startsWith('Q')
+                    _drawnCard!.startsWith('J')
                         ? _handleJackUsePower
                         : _handleDiscard,
                 style: ElevatedButton.styleFrom(

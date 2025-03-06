@@ -856,6 +856,22 @@ io.on('connection', (socket) => {
         io.to(lobbyCode).emit('jack_card_selected', { owner, cardIndex, selectingPlayer });
     });
 
+    socket.on('queen_card_unselected', (data) => {
+        const { lobbyCode, owner, cardIndex, selectingPlayer } = data;
+        const lobby = lobbies[lobbyCode];
+        if (!lobby) {
+            console.log(`❌ Lobby ${lobbyCode} does not exist.`);
+            return;
+        }
+        // Remove this selection from the server's queenSelections array, if present.
+        if (lobby.queenSelections) {
+            lobby.queenSelections = lobby.queenSelections.filter(
+                sel => !(sel.owner === owner && sel.cardIndex === cardIndex)
+            );
+        }
+        // Broadcast the unselection event so that all clients can update their UI.
+        io.to(lobbyCode).emit('queen_card_unselected', { owner, cardIndex, selectingPlayer });
+    });
 
 
 });
