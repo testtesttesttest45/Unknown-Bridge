@@ -476,7 +476,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               (newCurrentPlayer ==
                   currentPlayer); // Show Skip button only for current player
 
-          // **** NEW: Clear queen ability state ****
+          // **** NEW: Reset deck/discard selection flags ****
+          _hasSelectedDeck = false;
+          _hasSelectedDiscard = false;
+
+          // **** NEW: Clear queen ability state and any queen selection flags ****
           _queenAbilityActive = false;
           for (var hand in playerHands.values) {
             for (var card in hand) {
@@ -484,7 +488,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             }
           }
 
-          // (Optionally, also clear any jack selection state if needed)
+          // (Optionally, also clear any jack selection state)
           _jackSelectedCard = null;
 
           if (currentPlayer == newCurrentPlayer) {
@@ -713,7 +717,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
 
     final overlay = Overlay.of(context);
-    if (overlay == null) return;
 
     // Create overlay entries to animate the movement.
     OverlayEntry entry1 = OverlayEntry(
@@ -1071,7 +1074,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       final logicalIndex = reverseOrder ? (hand.length - 1 - i) : i;
       // Cast the card data to non-nullable type.
       final Map<String, dynamic> cardData =
-          hand[logicalIndex] as Map<String, dynamic>;
+          hand[logicalIndex];
       final card = cardData['card'];
       final isFaceUp = cardData['isFaceUp'];
       bool isCurrentPlayer = playerName == currentPlayer;
@@ -1652,33 +1655,39 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleSkipTurn() {
-    if (currentPlayer != wheelWinner)
-      return; // Only current player can click Skip
+    if (currentPlayer != wheelWinner) return; // Only current player can click
 
-    print("🚫 (CLIENT) $currentPlayer skipped their turn");
+    print("🚫 (CLIENT) $currentPlayer skipped their turn/power");
 
     setState(() {
       _showSkipButton = false; // Hide Skip button after clicking
 
-      // **** NEW: Clear queen state and remove yellow outlines ****
+      // Clear any power state.
+      _jackAbilityActive = false;
       _queenAbilityActive = false;
+      _jackSelectedCard = null;
       for (var hand in playerHands.values) {
         for (var card in hand) {
           card['isQueenSelected'] = false;
         }
       }
+      // Also clear drawn card and replacement state if necessary.
+      _drawnCard = null;
+      showCardEffect = false;
     });
 
-    // Broadcast the reset to ALL clients
+    // Broadcast reset (if needed) and emit skip event to server.
     widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
-
-    // Emit skip turn event
     widget.socket.emit('skip_turn', {
       'lobbyCode': widget.lobbyCode,
       'playerName': currentPlayer,
     });
 
-    _showLogMessage("$currentPlayer skipped their turn.");
+    _showLogMessage(
+      "$currentPlayer skipped their " +
+          ((_jackAbilityActive || _queenAbilityActive) ? "power" : "turn") +
+          ".",
+    );
   }
 
   void _startCardDrawAnimation() {
@@ -1766,11 +1775,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     // Only restore interactivity if Jack ability is not active
                     if (!_jackAbilityActive) {
                       _canInteractWithDeck = true;
-                      _showSkipButton = true;
                       print("✅ (DEBUG) Deck interaction restored.");
                     } else {
                       _canInteractWithDeck = false;
-                      _showSkipButton = false;
                     }
                   });
                 }
@@ -1797,7 +1804,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                       print("✅ (DEBUG) Deck interaction restored.");
                     } else {
                       _canInteractWithDeck = false;
-                      _showSkipButton = false;
+                      _showSkipButton = true;
                     }
                   });
                 }
@@ -2127,7 +2134,12 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                         vertical: 10,
                       ),
                     ),
-                    child: Text("Skip Turn", style: TextStyle(fontSize: 18)),
+                    child: Text(
+                      (_jackAbilityActive || _queenAbilityActive)
+                          ? "Skip Power"
+                          : "Skip Turn",
+                      style: TextStyle(fontSize: 18),
+                    ),
                   ),
                 if (_showUndoSelection) SizedBox(width: 10),
                 if (_showUndoSelection)
@@ -2161,7 +2173,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               left: MediaQuery.of(context).size.width / 2 - 50,
               child: ElevatedButton(
                 onPressed:
-                    _drawnCard!.startsWith('J')
+                    _drawnCard!.startsWith('J') || _drawnCard!.startsWith('Q')
                         ? _handleJackUsePower
                         : _handleDiscard,
                 style: ElevatedButton.styleFrom(
@@ -2169,7 +2181,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
                 child: Text(
-                  _drawnCard!.startsWith('J') ? 'Use Power' : 'Discard',
+                  _drawnCard!.startsWith('J') || _drawnCard!.startsWith('Q')
+                      ? 'Use Power'
+                      : 'Discard',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -2229,7 +2243,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       _jackAbilityActive = true;
       _drawnCard = null; // Hide the Use Power button
       _canInteractWithDeck = false; // Disable tapping on the center deck
-      _showSkipButton = false;
+      _showSkipButton = true;
       showCardEffect = false; // Also disable glowing effect if needed
     });
   }
@@ -2307,11 +2321,11 @@ class _AnimatedCardOverlay extends StatefulWidget {
   final Widget child;
 
   const _AnimatedCardOverlay({
-    Key? key,
+    super.key,
     required this.startPosition,
     required this.endPosition,
     required this.child,
-  }) : super(key: key);
+  });
 
   @override
   _AnimatedCardOverlayState createState() => _AnimatedCardOverlayState();
