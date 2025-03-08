@@ -684,45 +684,35 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   }
 
   void _handleQueenCardSelection(String owner, int index) {
-    // Check the current selection state of the card.
     bool isSelected = playerHands[owner]?[index]['isQueenSelected'] ?? false;
 
-    if (isSelected) {
-      // If already selected, unselect it.
-      setState(() {
+    setState(() {
+      if (isSelected) {
+        // If already selected, unselect it
         playerHands[owner]![index]['isQueenSelected'] = false;
-      });
-      // Remove from our local selection list.
-      _myQueenSelections.removeWhere(
-        (sel) => sel['owner'] == owner && sel['index'] == index,
-      );
-      // Emit unselection event so that all clients update their UI.
-      widget.socket.emit('queen_card_unselected', {
-        'lobbyCode': widget.lobbyCode,
-        'owner': owner,
-        'cardIndex': index,
-        'selectingPlayer': currentPlayer,
-      });
-    } else {
-      // Otherwise, select the card.
-      setState(() {
+        _myQueenSelections.removeWhere(
+          (sel) => sel['owner'] == owner && sel['index'] == index,
+        );
+      } else {
+        // Select the card and update UI immediately
         playerHands[owner]![index]['isQueenSelected'] = true;
-      });
-      // Add to our local list.
-      _myQueenSelections.add({'owner': owner, 'index': index});
-      // Emit selection event to inform all clients.
-      widget.socket.emit('queen_card_selected', {
-        'lobbyCode': widget.lobbyCode,
-        'owner': owner,
-        'cardIndex': index,
-        'selectingPlayer': currentPlayer,
-      });
-      // If this makes 2 selections, trigger the swap.
-      if (_myQueenSelections.length == 2) {
-        widget.socket.emit('queen_swap', {'selections': _myQueenSelections});
-        // Clear local selections (the server will also clear the flags after swap).
-        _myQueenSelections.clear();
+        _myQueenSelections.add({'owner': owner, 'index': index});
       }
+    });
+
+    // Emit selection event so other players see it too
+    widget.socket
+        .emit(isSelected ? 'queen_card_unselected' : 'queen_card_selected', {
+          'lobbyCode': widget.lobbyCode,
+          'owner': owner,
+          'cardIndex': index,
+          'selectingPlayer': currentPlayer,
+        });
+
+    // If 2 cards are selected, send swap event
+    if (_myQueenSelections.length == 2) {
+      widget.socket.emit('queen_swap', {'selections': _myQueenSelections});
+      _myQueenSelections.clear(); // Reset after swap
     }
   }
 
@@ -1074,9 +1064,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
   }
 
-  Widget _buildCardBack({Key? key}) {
+  Widget _buildCardBack({Key? key, bool isSelected = false}) {
     return Container(
-      key: key, // Assign key to card back
+      key: key,
       decoration: BoxDecoration(
         gradient: RadialGradient(
           colors: [Colors.redAccent, Colors.orangeAccent],
@@ -1085,22 +1075,35 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         ),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Transform.rotate(
-            angle: -pi / 4, // Restore the diagonal rotation
-            child: Text(
-              'Unknown Bridge',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+      child: Stack(
+        children: [
+          Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Transform.rotate(
+                angle: -pi / 4, // Restore the diagonal rotation
+                child: Text(
+                  'Unknown Bridge',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
-              textAlign: TextAlign.center,
             ),
           ),
-        ),
+          if (isSelected) // 🔥 Apply darkening effect on the card back
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5), // Dark overlay
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1215,8 +1218,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     )
                     : _buildCardBack(
                       key: ValueKey(
-                        'back_${card}_${cardData["flipCounter"] ?? 0}',
+                        'back_${card}_${logicalIndex}_${cardData["flipCounter"] ?? 0}',
                       ),
+                      isSelected:
+                          cardData['isQueenSelected'] ??
+                          false, // 🔥 Ensure selected darkening
                     );
           }
         }
