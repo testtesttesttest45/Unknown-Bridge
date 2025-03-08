@@ -541,19 +541,36 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       int replaceIndex = data['replaceIndex'];
       String newCard = data['newCard'];
       bool wasDrawnFromDeck =
-          data['wasDrawnFromDeck'] ?? false; // Default to false
+          data['wasDrawnFromDeck'] ?? false; // Default false
 
       if (playerHands.containsKey(playerName)) {
         setState(() {
-          // Update the card value only.
-          playerHands[playerName]![replaceIndex]['card'] =
-              (playerName == currentPlayer || !wasDrawnFromDeck)
-                  ? newCard
-                  : "???";
-          // Force the card to be face-up (without touching flipCounter)
-          playerHands[playerName]![replaceIndex]['isFaceUp'] = true;
-          // Do NOT update the flipCounter here.
+          if (playerName == currentPlayer || !wasDrawnFromDeck) {
+            // ✅ Current player sees the real new card immediately
+            playerHands[playerName]![replaceIndex]['card'] = newCard;
+            playerHands[playerName]![replaceIndex]['isFaceUp'] = true;
+            playerHands[playerName]![replaceIndex]['isHidden'] = false;
+          } else {
+            // 🔥 Store the real card internally but show "???" temporarily
+            playerHands[playerName]![replaceIndex]['actualCard'] = newCard;
+            playerHands[playerName]![replaceIndex]['card'] = "???";
+            playerHands[playerName]![replaceIndex]['isFaceUp'] = true;
+            playerHands[playerName]![replaceIndex]['isHidden'] = false;
+
+            // 🔄 🔥 FIX: Only flip once by checking if it is already face-down
+            Future.delayed(Duration(seconds: 1), () {
+              if (mounted &&
+                  playerHands[playerName]![replaceIndex]['card'] == "???" &&
+                  playerHands[playerName]![replaceIndex]['isFaceUp']) {
+                setState(() {
+                  playerHands[playerName]![replaceIndex]['isFaceUp'] = false;
+                  playerHands[playerName]![replaceIndex]['isHidden'] = true;
+                });
+              }
+            });
+          }
         });
+
         print(
           "🔄 (CLIENT) Updated replaced card for $playerName at index $replaceIndex (From Deck: $wasDrawnFromDeck)",
         );
@@ -1131,11 +1148,13 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       }
 
       // Determine the widget to display.
+      // Determine the widget to display.
       Widget cardWidget;
       if (isSelectedCard) {
         if (currentPlayer == _jackSelectedCard!['selectingPlayer']) {
+          // ✅ Jack reveals the real card by using `actualCard`
           cardWidget = _buildCardFace(
-            card,
+            cardData['actualCard'] ?? card, // 🔥 Show real card
             key: ValueKey(
               'jack_face_${card}_${logicalIndex}_${cardData["flipCounter"]}',
             ),
@@ -1151,6 +1170,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       } else {
         bool isTemporarilyRevealed = cardData['isTemporarilyRevealed'] ?? false;
         bool isJackFlipping = cardData['isJackFlipping'] ?? false;
+        bool isHidden = cardData['isHidden'] ?? false;
+        bool isFaceUp = cardData['isFaceUp'] ?? false;
+
         if (isTemporarilyRevealed && playerName == currentPlayer) {
           cardWidget = _buildCardFace(
             card,
@@ -1164,19 +1186,39 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
             ),
           );
         } else {
-          cardWidget =
-              isFaceUp
-                  ? _buildCardFace(
-                    card,
-                    key: ValueKey(
-                      'face_${card}_${cardData["flipCounter"] ?? 0}',
-                    ),
-                  )
-                  : _buildCardBack(
-                    key: ValueKey(
-                      'back_${card}_${cardData["flipCounter"] ?? 0}',
-                    ),
-                  );
+          // 🔥 NEW: Show "???" for hidden cards instead of replacing card value
+          if (isHidden && playerName != currentPlayer) {
+            if (isFaceUp) {
+              // 🔥 Show "???" BRIEFLY for other players when a card is replaced
+              cardWidget = _buildCardFace(
+                "???",
+                key: ValueKey(
+                  'hidden_${card}_${logicalIndex}_${cardData["flipCounter"]}',
+                ),
+              );
+            } else {
+              // 🔥 After the brief moment, it flips back to face-down
+              cardWidget = _buildCardBack(
+                key: ValueKey(
+                  'back_${card}_${logicalIndex}_${cardData["flipCounter"]}',
+                ),
+              );
+            }
+          } else {
+            cardWidget =
+                isFaceUp
+                    ? _buildCardFace(
+                      card,
+                      key: ValueKey(
+                        'face_${card}_${cardData["flipCounter"] ?? 0}',
+                      ),
+                    )
+                    : _buildCardBack(
+                      key: ValueKey(
+                        'back_${card}_${cardData["flipCounter"] ?? 0}',
+                      ),
+                    );
+          }
         }
       }
 
@@ -1247,14 +1289,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
                     },
                   );
                 },
-                child: Stack(
-                  children: [
-                    cardWidget,
-                    // If the card is selected via queen ability, overlay a dark tint.
-                    if (cardData['isQueenSelected'] == true)
-                      Container(color: Colors.black.withOpacity(0.3)),
-                  ],
-                ),
+                child: cardWidget,
               ),
             ),
           ),
@@ -1318,11 +1353,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     // Update the card data: set new card value, mark it as face-up, and update flip counter.
     setState(() {
       playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
-      // Set it face-up to show the new card.
-      playerHands[currentPlayer]![replaceIndex]['isFaceUp'] = true;
-      _flipCounter++;
-      playerHands[currentPlayer]![replaceIndex]['flipCounter'] = _flipCounter;
+      playerHands[currentPlayer]![replaceIndex]['isFaceUp'] =
+          true; // 🔥 Show it briefly
+      playerHands[currentPlayer]![replaceIndex]['isHidden'] = false;
     });
+
+    // 🔄 🔥 After 1 second, flip it back down if it was drawn from the deck
+    if (!_hasSelectedDiscard) {
+      Future.delayed(Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() {
+            playerHands[currentPlayer]![replaceIndex]['isFaceUp'] = false;
+            playerHands[currentPlayer]![replaceIndex]['isHidden'] = true;
+          });
+        }
+      });
+    }
 
     // Emit the replacement event to the server.
     widget.socket.emit('replace_card', {
@@ -1332,11 +1378,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       'newCard': _drawnCard,
       'replaceIndex': replaceIndex,
       'wasDrawnFromDeck': wasDrawnFromDeck,
-    });
-
-    // After a short delay, trigger a flip-back animation so the card flips face-down.
-    Future.delayed(Duration(seconds: 1), () {
-      _triggerCardFlip(currentPlayer, replaceIndex, false);
     });
 
     // If the deck was used, emit a deck scale reset.

@@ -61,6 +61,11 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   bool _animationCompleted = false;
   bool _canCurrentPlayerReplace = false;
   int _flipCounter = 0;
+  bool _jackAbilityActive = false;
+  Map<String, dynamic>? _jackSelectedCard;
+  bool _jackCardSelected = false;
+  bool _queenAbilityActive = false;
+  Map<String, GlobalKey> cardWidgetKeys = {};
 
   @override
   void initState() {
@@ -454,10 +459,6 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       final newCurrentPlayer = data['currentPlayer'];
       final upcomingPlayer = data['nextPlayer'];
 
-      print(
-        "➡️ (CLIENT) It's now $newCurrentPlayer's turn. Next up: $upcomingPlayer",
-      );
-
       if (mounted) {
         setState(() {
           wheelWinner = newCurrentPlayer; // Highlight current player
@@ -466,21 +467,25 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           currentTurnStatus = "Current turn: $newCurrentPlayer";
           nextTurnPlayer = upcomingPlayer;
 
-          _isDrawing = false; // ✅ Reset drawing state for new turn
-          _drawnCard = null; // ✅ Reset drawn card
-          showCardEffect = false; // ✅ Hide discard effect
-
-          _isSelectingReplacement =
-              false; // ✅ Reset selection state for new turn
-          _selectedReplacementIndex = null; // ✅ Clear selected index
+          _isDrawing = false; // Reset drawing state for new turn
+          _drawnCard = null; // Reset drawn card
+          showCardEffect = false; // Hide discard effect
+          _isSelectingReplacement = false; // Reset selection state for new turn
+          _selectedReplacementIndex = null; // Clear selected index
           _showSkipButton =
               (newCurrentPlayer ==
-                  currentPlayer); // ✅ Show Skip button only for the current player
+                  currentPlayer); // Show Skip button only for current player
 
-          // 🔥 Fix: Reset selection flags to ensure yellow outline is visible again
-          _hasSelectedDeck = false;
-          _hasSelectedDiscard = false;
-          _showUndoSelection = false;
+          // **** NEW: Clear queen ability state ****
+          _queenAbilityActive = false;
+          for (var hand in playerHands.values) {
+            for (var card in hand) {
+              card['isQueenSelected'] = false;
+            }
+          }
+
+          // (Optionally, also clear any jack selection state if needed)
+          _jackSelectedCard = null;
 
           if (currentPlayer == newCurrentPlayer) {
             _showLogMessage("It's your turn! Draw or pick a card.");
@@ -568,6 +573,198 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         );
       }
     });
+
+    widget.socket.on('jack_ability_active', (data) {
+      if (mounted) {
+        setState(() {
+          _jackAbilityActive = true;
+        });
+      }
+    });
+
+    // Listen for when another client (or yourself) selects a card via Jack ability.
+    widget.socket.on('jack_card_selected', (data) {
+      // If this client is NOT the one who selected the card…
+      if (data['selectingPlayer'] != currentPlayer) {
+        setState(() {
+          _jackSelectedCard = {
+            'owner': data['owner'],
+            'index': data['cardIndex'],
+            'selectingPlayer': data['selectingPlayer'],
+          };
+          // Mark the targeted card as flipping on this client.
+          if (playerHands[data['owner']] != null) {
+            setState(() {
+              playerHands[data['owner']]![data['cardIndex']]['isJackFlipping'] =
+                  true;
+              _flipCounter++;
+              playerHands[data['owner']]![data['cardIndex']]['flipCounter'] =
+                  _flipCounter;
+            });
+          }
+        });
+        Future.delayed(Duration(seconds: 2), () {
+          setState(() {
+            if (playerHands[data['owner']] != null) {
+              playerHands[data['owner']]![data['cardIndex']]['isJackFlipping'] =
+                  false;
+              // Also, flip the card back face-down.
+              playerHands[data['owner']]?[data['cardIndex']]['isFaceUp'] =
+                  false;
+            }
+            _jackSelectedCard = null;
+          });
+        });
+      }
+    });
+
+    widget.socket.on('queen_ability_active', (data) {
+      setState(() {
+        _queenAbilityActive = true;
+      });
+      _showLogMessage("Queen ability active: Select 2 cards to swap!");
+    });
+
+    // Listen for selections made by other players (for highlighting)
+    widget.socket.on('queen_card_selected', (data) {
+      // If this client is NOT the one selecting, highlight the card
+      if (data['selectingPlayer'] != currentPlayer) {
+        setState(() {
+          if (playerHands[data['owner']] != null &&
+              playerHands[data['owner']]!.length > data['cardIndex']) {
+            playerHands[data['owner']]![data['cardIndex']]['isQueenSelected'] =
+                true;
+          }
+        });
+        // Remove the highlight after a short delay
+        Future.delayed(Duration(seconds: 2), () {
+          setState(() {
+            if (playerHands[data['owner']] != null &&
+                playerHands[data['owner']]!.length > data['cardIndex']) {
+              playerHands[data['owner']]![data['cardIndex']]['isQueenSelected'] =
+                  false;
+            }
+          });
+        });
+      }
+    });
+
+    // Listen for the queen_swap event to animate the swap of two cards
+    widget.socket.on('queen_swap', (data) {
+      final selections = data['selections'];
+      _animateQueenSwap(selections);
+      // Reset the Queen ability flag
+      setState(() {
+        _queenAbilityActive = false;
+      });
+    });
+  }
+
+  void _handleQueenCardSelection(String owner, int index) {
+    // Prevent selecting the same card twice.
+    if (playerHands[owner]?[index]['isQueenSelected'] == true) return;
+
+    // Mark the card as selected on this client
+    setState(() {
+      playerHands[owner]![index]['isQueenSelected'] = true;
+    });
+    // Emit the selection to the server
+    widget.socket.emit('queen_card_selected', {
+      'lobbyCode': widget.lobbyCode,
+      'owner': owner,
+      'cardIndex': index,
+      'selectingPlayer': currentPlayer,
+    });
+  }
+
+  /// Called when the server emits a queen_swap event.
+  void _animateQueenSwap(List selections) async {
+    if (selections.length != 2) return;
+
+    final selection1 = selections[0];
+    final selection2 = selections[1];
+
+    // Build unique key strings.
+    final key1String = "${selection1['owner']}-${selection1['cardIndex']}";
+    final key2String = "${selection2['owner']}-${selection2['cardIndex']}";
+
+    final key1 = cardWidgetKeys[key1String];
+    final key2 = cardWidgetKeys[key2String];
+
+    if (key1 == null || key2 == null) {
+      print("One or both card keys not found");
+      return;
+    }
+
+    // Retrieve the current global positions.
+    final box1 = key1.currentContext?.findRenderObject() as RenderBox?;
+    final box2 = key2.currentContext?.findRenderObject() as RenderBox?;
+    if (box1 == null || box2 == null) return;
+
+    final pos1 = box1.localToGlobal(Offset.zero);
+    final pos2 = box2.localToGlobal(Offset.zero);
+
+    // Build snapshots of the two cards.
+    Widget cardWidget1 = _buildCardSnapshot(
+      playerHands[selection1['owner']]![selection1['cardIndex']],
+    );
+    Widget cardWidget2 = _buildCardSnapshot(
+      playerHands[selection2['owner']]![selection2['cardIndex']],
+    );
+
+    final overlay = Overlay.of(context);
+    if (overlay == null) return;
+
+    // Create overlay entries to animate the movement.
+    OverlayEntry entry1 = OverlayEntry(
+      builder:
+          (context) => _AnimatedCardOverlay(
+            startPosition: pos1,
+            endPosition: pos2,
+            child: cardWidget1,
+          ),
+    );
+    OverlayEntry entry2 = OverlayEntry(
+      builder:
+          (context) => _AnimatedCardOverlay(
+            startPosition: pos2,
+            endPosition: pos1,
+            child: cardWidget2,
+          ),
+    );
+
+    overlay.insert(entry1);
+    overlay.insert(entry2);
+
+    // Wait for the animation to complete.
+    await Future.delayed(Duration(milliseconds: 1200));
+
+    // Remove the overlay entries.
+    entry1.remove();
+    entry2.remove();
+
+    // Update your local state by swapping the card data.
+    setState(() {
+      var temp = playerHands[selection1['owner']]![selection1['cardIndex']];
+      playerHands[selection1['owner']]![selection1['cardIndex']] =
+          playerHands[selection2['owner']]![selection2['cardIndex']];
+      playerHands[selection2['owner']]![selection2['cardIndex']] = temp;
+
+      // **** NEW: Clear any queen selection flags after swap ****
+      for (var hand in playerHands.values) {
+        for (var card in hand) {
+          card['isQueenSelected'] = false;
+        }
+      }
+    });
+    _showLogMessage("Queen ability: Cards swapped!");
+  }
+
+  /// Helper: Build a snapshot widget for a card (this can be as simple as a card face widget).
+  Widget _buildCardSnapshot(Map<String, dynamic> cardData) {
+    final card = cardData['card'];
+    // You may adjust this to match how your card should appear during the swap.
+    return SizedBox(width: 45, height: 65, child: _buildCardFace(card));
   }
 
   void _flipDrawnCard() {
@@ -603,6 +800,176 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         _showLogMessage("Discard or Replace your card!");
       }
     });
+  }
+
+  void _showLogMessage(String message) {
+    // Cancel any ongoing animations immediately
+    logMessageController.stop();
+    logMessageController.reset();
+
+    // Clear the existing message first
+    if (mounted) {
+      setState(() {
+        logMessage = null;
+      });
+    }
+
+    // Allow a small delay to ensure old message is fully removed
+    Future.delayed(Duration(milliseconds: 50), () {
+      if (mounted) {
+        setState(() {
+          logMessage = message;
+        });
+
+        // Start fade-in animation
+        logMessageController.forward();
+
+        // Start a new full 5-second timer
+        Future.delayed(Duration(seconds: 5), () {
+          if (mounted && logMessage == message) {
+            logMessageController.reverse().then((_) {
+              if (mounted && logMessage == message) {
+                setState(() {
+                  logMessage =
+                      null; // Clear the message only if it's still the same one
+                });
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+
+  void _flipAllCards() async {
+    print("🎬 (DEBUG) Flipping only current player's left and right cards...");
+
+    // Start countdown
+    setState(() {
+      revealCountdown = 2;
+    });
+
+    await Future.delayed(Duration(seconds: 1));
+    setState(() {
+      revealCountdown = 1;
+    });
+
+    await Future.delayed(Duration(seconds: 1));
+    setState(() {
+      revealCountdown = 0; // Show "0" before flipping
+    });
+
+    await Future.delayed(Duration(seconds: 1)); // Pause at "0"
+    setState(() {
+      revealCountdown = null; // Remove countdown text
+    });
+
+    // Reveal only left and right cards for current player
+    final currentHand = playerHands[currentPlayer];
+
+    if (currentHand != null && currentHand.length >= 3) {
+      // Assuming cards are ordered as [left, center, right]
+      final leftCardIndex = 0;
+      final rightCardIndex = 2;
+
+      // Trigger flip animation for left and right cards
+      _triggerCardFlip(currentPlayer, leftCardIndex, true); // Flip face-up
+      _triggerCardFlip(currentPlayer, rightCardIndex, true); // Flip face-up
+
+      print("🔄 (DEBUG) Revealed left and right cards for $currentPlayer");
+
+      // Wait 2 seconds before flipping them back face-down
+      await Future.delayed(Duration(seconds: 2));
+
+      // Flip cards back
+      _triggerCardFlip(currentPlayer, leftCardIndex, false); // Flip face-down
+      _triggerCardFlip(currentPlayer, rightCardIndex, false); // Flip face-down
+
+      print("🔄 (DEBUG) Flipped back left and right cards for $currentPlayer");
+
+      // Wait 2 seconds before starting wheelspin
+      await Future.delayed(Duration(seconds: 2));
+
+      // Start Wheelspin
+      setState(() {
+        isWheelSpinning = true;
+        wheelWinner = null;
+      });
+
+      // Emit spin_wheel event to server
+      widget.socket.emit('spin_wheel', {'lobbyCode': widget.lobbyCode});
+    } else {
+      print("⚠️ (DEBUG) Not enough cards to reveal for $currentPlayer");
+    }
+  }
+
+  Widget _buildWheelSpin() {
+    return (isWheelSpinning || (showWheel && wheelWinner != null))
+        ? Positioned.fill(
+          child: Container(
+            color: Colors.black.withValues(alpha: 0.7),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showWheel) // Only show wheel if showWheel is true
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Transform.rotate(
+                          angle: wheelRotation,
+                          child: Container(
+                            width: 250,
+                            height: 250,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                            child: Stack(
+                              children: List.generate(players.length, (index) {
+                                final angle = (2 * pi / players.length) * index;
+                                return Transform.rotate(
+                                  angle: angle,
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 10),
+                                      child: Text(
+                                        players[index],
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color:
+                                              Colors.primaries[index %
+                                                  Colors.primaries.length],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.arrow_drop_up, size: 50, color: Colors.red),
+                      ],
+                    ),
+                  SizedBox(height: 20),
+                  if (showWinnerText && wheelWinner != null)
+                    Text(
+                      '🎉 Winner: $wheelWinner 🎉',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.yellowAccent,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        )
+        : SizedBox.shrink();
   }
 
   void _triggerCardFlip(String playerName, int cardIndex, bool faceUp) {
@@ -702,7 +1069,9 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     return List.generate(hand.length, (i) {
       // Map the displayed index to the logical index.
       final logicalIndex = reverseOrder ? (hand.length - 1 - i) : i;
-      final cardData = hand[logicalIndex];
+      // Cast the card data to non-nullable type.
+      final Map<String, dynamic> cardData =
+          hand[logicalIndex] as Map<String, dynamic>;
       final card = cardData['card'];
       final isFaceUp = cardData['isFaceUp'];
       bool isCurrentPlayer = playerName == currentPlayer;
@@ -714,16 +1083,93 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           _animationCompleted &&
           _canDiscard;
 
-      // Use yellow border if selectable; otherwise blue if flagged.
       BoxBorder? border;
-      if (isSelectable) {
+      // Outline in yellow if either Jack or Queen ability is active.
+      if (_jackAbilityActive || _queenAbilityActive) {
+        border = Border.all(color: Colors.yellowAccent, width: 3);
+      } else if (isSelectable) {
         border = Border.all(color: Colors.yellowAccent, width: 3);
       }
 
+      // Check if this card is selected via Jack ability.
+      bool isSelectedCard = false;
+      if (_jackSelectedCard != null) {
+        if (_jackSelectedCard!['owner'] == playerName &&
+            _jackSelectedCard!['index'] == logicalIndex) {
+          isSelectedCard = true;
+        }
+      }
+
+      // Determine the widget to display.
+      Widget cardWidget;
+      if (isSelectedCard) {
+        if (currentPlayer == _jackSelectedCard!['selectingPlayer']) {
+          cardWidget = _buildCardFace(
+            card,
+            key: ValueKey(
+              'jack_face_${card}_${logicalIndex}_${cardData["flipCounter"]}',
+            ),
+          );
+        } else {
+          cardWidget = _buildCardFace(
+            "???",
+            key: ValueKey(
+              'jack_hidden_${card}_${logicalIndex}_${cardData["flipCounter"]}',
+            ),
+          );
+        }
+      } else {
+        bool isTemporarilyRevealed = cardData['isTemporarilyRevealed'] ?? false;
+        bool isJackFlipping = cardData['isJackFlipping'] ?? false;
+        if (isTemporarilyRevealed && playerName == currentPlayer) {
+          cardWidget = _buildCardFace(
+            card,
+            key: ValueKey('temp_${card}_${logicalIndex}'),
+          );
+        } else if (isJackFlipping &&
+            currentPlayer != _jackSelectedCard?['selectingPlayer']) {
+          cardWidget = _buildCardBack(
+            key: ValueKey(
+              'flip_${card}_${logicalIndex}_${cardData["flipCounter"]}',
+            ),
+          );
+        } else {
+          cardWidget =
+              isFaceUp
+                  ? _buildCardFace(
+                    card,
+                    key: ValueKey(
+                      'face_${card}_${cardData["flipCounter"] ?? 0}',
+                    ),
+                  )
+                  : _buildCardBack(
+                    key: ValueKey(
+                      'back_${card}_${cardData["flipCounter"] ?? 0}',
+                    ),
+                  );
+        }
+      }
+
+      // Determine the onTap behavior:
+      VoidCallback? onTap;
+      if (_jackAbilityActive) {
+        onTap = () => _handleJackCardSelection(playerName, logicalIndex);
+      } else if (_queenAbilityActive) {
+        onTap = () => _handleQueenCardSelection(playerName, logicalIndex);
+      } else if (isCurrentPlayer) {
+        onTap = isSelectable ? () => _handleReplaceCard(logicalIndex) : null;
+      }
+
+      // Generate a unique key string for this card.
+      final keyString = "$playerName-$logicalIndex";
+      // Either retrieve an existing GlobalKey or create a new one.
+      final cardKey = cardWidgetKeys[keyString] ?? GlobalKey();
+      cardWidgetKeys[keyString] = cardKey;
+
       return GestureDetector(
-        // Always use the logical index so that replacement events use the correct card.
-        onTap: isSelectable ? () => _handleReplaceCard(logicalIndex) : null,
+        onTap: onTap,
         child: Container(
+          key: cardKey, // Assign the GlobalKey here.
           width: vertical ? 65 : 45,
           height: vertical ? 45 : 65,
           margin: EdgeInsets.only(
@@ -736,59 +1182,146 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
           ),
           child: RotatedBox(
             quarterTurns: (rotateCards / (pi / 2)).round(),
-            child: AnimatedSwitcher(
-              duration:
-                  (playerPosition == 'right' &&
-                          (cardData["flipCounter"] ?? 0) == 0)
-                      ? Duration(milliseconds: 0)
-                      : Duration(milliseconds: 800),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                // If the card hasn't been flipped yet (flipCounter is 0) on the right side,
-                // simply return the child without animating.
-                if (playerPosition == 'right' &&
-                    (cardData["flipCounter"] ?? 0) == 0)
-                  return child;
-                final rotateAnim = Tween(begin: pi, end: 0.0).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeInOut),
-                );
-                return AnimatedBuilder(
-                  animation: rotateAnim,
-                  child: child,
-                  builder: (context, child) {
-                    final isUnder = (ValueKey(isFaceUp) != child!.key);
-                    var tilt =
-                        isUnder
-                            ? min(rotateAnim.value, pi / 2)
-                            : rotateAnim.value;
-                    return Transform(
-                      transform: Matrix4.rotationY(tilt),
-                      alignment: Alignment.center,
-                      child: child,
-                    );
-                  },
-                );
-              },
-              layoutBuilder:
-                  (widget, list) => Stack(children: [widget!, ...list]),
-              switchInCurve: Curves.easeInOut,
-              child:
-                  isFaceUp
-                      ? _buildCardFace(
-                        card,
-                        key: ValueKey(
-                          'face_${card}_${cardData["flipCounter"] ?? 0}',
-                        ),
-                      )
-                      : _buildCardBack(
-                        key: ValueKey(
-                          'back_${card}_${cardData["flipCounter"] ?? 0}',
-                        ),
-                      ),
+            child: ClipRect(
+              child: AnimatedSwitcher(
+                duration: Duration(milliseconds: 800),
+                switchInCurve: Curves.easeInOut,
+                switchOutCurve: Curves.easeInOut,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  );
+                },
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  final rotateAnim = Tween(begin: pi, end: 0.0).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+                  );
+                  return AnimatedBuilder(
+                    animation: rotateAnim,
+                    child: child,
+                    builder: (context, child) {
+                      final isUnder = (child!.key != ValueKey(isFaceUp));
+                      final tilt =
+                          isUnder
+                              ? min(rotateAnim.value, pi / 2)
+                              : rotateAnim.value;
+                      return Transform(
+                        transform: Matrix4.rotationY(tilt),
+                        alignment: Alignment.center,
+                        child: child,
+                      );
+                    },
+                  );
+                },
+                child: cardWidget,
+              ),
             ),
           ),
         ),
       );
     });
+  }
+
+  void _handleJackCardSelection(String owner, int index) {
+    if (_jackCardSelected) return;
+    _jackCardSelected = true;
+
+    setState(() {
+      _jackSelectedCard = {
+        'owner': owner,
+        'index': index,
+        'selectingPlayer': currentPlayer,
+      };
+      if (playerHands[owner] != null) {
+        playerHands[owner]![index]['isJackFlipping'] = true;
+        _flipCounter++;
+        playerHands[owner]![index]['flipCounter'] = _flipCounter;
+      }
+    });
+
+    widget.socket.emit('jack_card_selected', {
+      'lobbyCode': widget.lobbyCode,
+      'owner': owner,
+      'cardIndex': index,
+      'selectingPlayer': currentPlayer,
+    });
+
+    Future.delayed(Duration(seconds: 2), () {
+      setState(() {
+        _jackAbilityActive = false;
+        _jackCardSelected = false;
+        if (playerHands[owner] != null) {
+          playerHands[owner]![index]['isJackFlipping'] = false;
+          playerHands[owner]?[index]['isFaceUp'] = false;
+        }
+        _jackSelectedCard = null;
+      });
+      widget.socket.emit('jack_ability_complete', {
+        'lobbyCode': widget.lobbyCode,
+        'playerName': currentPlayer,
+      });
+    });
+  }
+
+  void _handleReplaceCard(int replaceIndex) {
+    if (_drawnCard == null) return;
+
+    String replacedCard = playerHands[currentPlayer]![replaceIndex]['card'];
+    bool wasDrawnFromDeck =
+        !_hasSelectedDiscard; // ✅ True if picked from center deck
+
+    print(
+      "🔄 (CLIENT) $currentPlayer replacing card at index $replaceIndex ($replacedCard) with $_drawnCard",
+    );
+
+    setState(() {
+      playerHands[currentPlayer]![replaceIndex]['card'] = _drawnCard!;
+    });
+
+    // Emit replacement event to server
+    widget.socket.emit('replace_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+      'replacedCard': replacedCard,
+      'newCard': _drawnCard,
+      'replaceIndex': replaceIndex,
+      'wasDrawnFromDeck': wasDrawnFromDeck, // ✅ Send this flag to server
+    });
+
+    // ✅ Flip the replaced card back to face-down after a delay for **all players**
+    Future.delayed(Duration(seconds: 2), () {
+      widget.socket.emit('flip_card_back', {
+        'lobbyCode': widget.lobbyCode,
+        'playerName': currentPlayer,
+        'replaceIndex': replaceIndex,
+        'wasDrawnFromDeck':
+            wasDrawnFromDeck, // ✅ Send this flag to ensure proper flip
+      });
+    });
+
+    // ✅ Ensure the deck scale reset only happens if the deck was used
+    if (!_hasSelectedDiscard) {
+      widget.socket.emit('reset_deck_scale', {'lobbyCode': widget.lobbyCode});
+    }
+
+    // Reset interaction states
+    setState(() {
+      _drawnCard = null;
+      _isCardFlipped = false;
+      showCardEffect = false;
+      _isSelectingReplacement = false;
+      _selectedReplacementIndex = null;
+      _hasSelectedDiscard = false;
+      _hasSelectedDeck = false;
+      _showUndoSelection = false;
+      _canInteractWithDeck = true;
+    });
+
+    _showLogMessage("$currentPlayer replaced $replacedCard with a new card.");
   }
 
   void _handleDeckTap() {
@@ -817,6 +1350,56 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     });
 
     _startCardDrawAnimation();
+  }
+
+  void _handleDiscardedCardTap(Map<String, dynamic> cardData) {
+    if (currentPlayer != wheelWinner) return;
+
+    print("🃏 (CLIENT) Tapped on discarded card: ${cardData['card']}");
+
+    setState(() {
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
+
+      cardData['isSelected'] = true;
+      _hasSelectedDiscard = true; // ✅ Ensure discard flag is set properly
+      _hasSelectedDeck = false;
+      _canInteractWithDeck = false;
+      _showSkipButton = true;
+      _showUndoSelection = true;
+      _drawnCard = cardData['card'];
+      _isSelectingReplacement = true;
+    });
+
+    widget.socket.emit('discard_pile_card_selected', {
+      'lobbyCode': widget.lobbyCode,
+      'card': cardData['card'],
+    });
+
+    _showLogMessage(
+      "Tap on a hand card to replace it with ${cardData['card']}",
+    );
+  }
+
+  void _handleUndoSelection() {
+    print("↩️ (CLIENT) Undo selection");
+
+    setState(() {
+      for (var card in discardedCards) {
+        card['isSelected'] = false;
+      }
+
+      _hasSelectedDiscard = false;
+      _hasSelectedDeck = false;
+      _canInteractWithDeck = true; // 🔥 Restore deck interaction
+      _showSkipButton = true; // ✅ Restore Skip after undo
+      _showUndoSelection = false; // ✅ Hide Undo Selection
+      _drawnCard = null; // ✅ Clear the selected discarded card
+      _isSelectingReplacement = false; // ✅ Prevent replacement mode
+    });
+
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
   }
 
   /// **Builds deck at the center with animating cards**
@@ -1068,6 +1651,36 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
     );
   }
 
+  void _handleSkipTurn() {
+    if (currentPlayer != wheelWinner)
+      return; // Only current player can click Skip
+
+    print("🚫 (CLIENT) $currentPlayer skipped their turn");
+
+    setState(() {
+      _showSkipButton = false; // Hide Skip button after clicking
+
+      // **** NEW: Clear queen state and remove yellow outlines ****
+      _queenAbilityActive = false;
+      for (var hand in playerHands.values) {
+        for (var card in hand) {
+          card['isQueenSelected'] = false;
+        }
+      }
+    });
+
+    // Broadcast the reset to ALL clients
+    widget.socket.emit('reset_discarded_card', {'lobbyCode': widget.lobbyCode});
+
+    // Emit skip turn event
+    widget.socket.emit('skip_turn', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+    });
+
+    _showLogMessage("$currentPlayer skipped their turn.");
+  }
+
   void _startCardDrawAnimation() {
     print("🎬 (DEBUG) Starting enhanced draw animation");
 
@@ -1128,7 +1741,7 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
   void _safeReverseDeckScale() {
     try {
       setState(() {
-        _canInteractWithDeck = false; // Ensure deck remains non-interactive
+        _canInteractWithDeck = false; // Keep deck non-interactive initially
         _showSkipButton = false;
       });
 
@@ -1142,19 +1755,23 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
       if (_deckScaleController!.isAnimating ||
           _deckScaleController!.isCompleted) {
         print("⚠️ (DEBUG) Reversing deck scale animation.");
-
         _deckScaleController!.reverse().whenComplete(() {
           if (mounted) {
             setState(() {
               _deckScaleController!.reset();
               _isDrawing = false; // Ensure drawing is fully reset
               Future.delayed(Duration(milliseconds: 200), () {
-                // Small delay to sync animations
                 if (mounted) {
                   setState(() {
-                    _canInteractWithDeck = true;
-                    _showSkipButton = true;
-                    print("✅ (DEBUG) Deck interaction restored.");
+                    // Only restore interactivity if Jack ability is not active
+                    if (!_jackAbilityActive) {
+                      _canInteractWithDeck = true;
+                      _showSkipButton = true;
+                      print("✅ (DEBUG) Deck interaction restored.");
+                    } else {
+                      _canInteractWithDeck = false;
+                      _showSkipButton = false;
+                    }
                   });
                 }
               });
@@ -1172,12 +1789,16 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               _deckScaleController!.reset();
               _isDrawing = false;
               Future.delayed(Duration(milliseconds: 750), () {
-                // dont touch already
                 if (mounted) {
                   setState(() {
-                    _canInteractWithDeck = true;
-                    _showSkipButton = true;
-                    print("✅ (DEBUG) Deck interaction restored.");
+                    if (!_jackAbilityActive) {
+                      _canInteractWithDeck = true;
+                      _showSkipButton = true;
+                      print("✅ (DEBUG) Deck interaction restored.");
+                    } else {
+                      _canInteractWithDeck = false;
+                      _showSkipButton = false;
+                    }
                   });
                 }
               });
@@ -1533,19 +2154,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
               _drawnCard != null &&
               _isCardFlipped &&
               _canDiscard &&
-              _animationCompleted && // ✅ Ensures button only appears after full animation
+              _animationCompleted &&
               currentPlayer == wheelWinner)
             Positioned(
               bottom: 150,
               left: MediaQuery.of(context).size.width / 2 - 50,
               child: ElevatedButton(
-                onPressed: _handleDiscard,
+                onPressed:
+                    _drawnCard!.startsWith('J')
+                        ? _handleJackUsePower
+                        : _handleDiscard,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.redAccent,
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
                 child: Text(
-                  'Discard',
+                  _drawnCard!.startsWith('J') ? 'Use Power' : 'Discard',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -1592,6 +2216,22 @@ class _UnknownGameScreenState extends State<UnknownGameScreen>
         ],
       ),
     );
+  }
+
+  void _handleJackUsePower() {
+    widget.socket.emit('discard_card', {
+      'lobbyCode': widget.lobbyCode,
+      'playerName': currentPlayer,
+      'card': _drawnCard,
+      'animateReverse': true,
+    });
+    setState(() {
+      _jackAbilityActive = true;
+      _drawnCard = null; // Hide the Use Power button
+      _canInteractWithDeck = false; // Disable tapping on the center deck
+      _showSkipButton = false;
+      showCardEffect = false; // Also disable glowing effect if needed
+    });
   }
 }
 
@@ -1661,70 +2301,58 @@ class RotationYTransition extends StatelessWidget {
   }
 }
 
+class _AnimatedCardOverlay extends StatefulWidget {
+  final Offset startPosition;
+  final Offset endPosition;
+  final Widget child;
 
-/// Base class for face card abilities.
-/// Later you might add more common methods or properties for Queens and Kings.
-abstract class FaceCardAbility {
-  final String card;
-  
-  FaceCardAbility(this.card);
-
-  /// Returns true if the drawn card is one that should use a face ability.
-  bool isFaceCard() {
-    // For simplicity, check if the card starts with J, Q, or K.
-    return ['J'].any((face) => card.startsWith(face));
-  }
-
-  /// Activate the face card’s power.
-  /// The implementation should update the UI accordingly.
-  void activate();
-}
-
-/// Implements Jack’s ability: after drawing a Jack from the center deck,
-/// the “Use Power” action will highlight all cards in the player's hand,
-/// making them selectable.
-class JackAbility extends FaceCardAbility {
-  /// Callback when a hand card is selected.
-  /// The [selectedIndex] indicates which card was picked.
-  final void Function(int selectedIndex) onCardSelected;
-  
-  /// Callback to trigger the flip animation locally.
-  /// This method should start a 2-second flip and then revert.
-  final void Function(int selectedIndex) triggerLocalFlip;
-
-  /// A reference to the player’s hand data (each card is represented as a map).
-  /// For example, each card map might include a flag like 'isSelectable'.
-  final List<Map<String, dynamic>> playerHand;
-
-  JackAbility({
-    required String card,
-    required this.onCardSelected,
-    required this.triggerLocalFlip,
-    required this.playerHand,
-  }) : super(card);
+  const _AnimatedCardOverlay({
+    Key? key,
+    required this.startPosition,
+    required this.endPosition,
+    required this.child,
+  }) : super(key: key);
 
   @override
-  void activate() {
-    // Mark each card in the player's hand as selectable.
-    // In your UI, check for card['isSelectable'] to show a yellow outline.
-    for (var cardData in playerHand) {
-      cardData['isSelectable'] = true;
-    }
-    // Optionally trigger a UI update (e.g. via setState in your widget).
+  _AnimatedCardOverlayState createState() => _AnimatedCardOverlayState();
+}
 
-    // The UI should now allow the user to tap on one of these highlighted cards.
-    // When tapped, call the [onCardSelected] callback with the index.
+class _AnimatedCardOverlayState extends State<_AnimatedCardOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 1200),
+    );
+    _animation = Tween<Offset>(
+      begin: widget.startPosition,
+      end: widget.endPosition,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _controller.forward();
   }
 
-  /// Call this when the player has selected a card (from the yellow-outlined options).
-  void handleCardSelection(int selectedIndex) {
-    // Remove the selectable flag so that the UI resets the outline.
-    for (var cardData in playerHand) {
-      cardData['isSelectable'] = false;
-    }
-    // Trigger the local flip animation: flip for 2 seconds then revert.
-    triggerLocalFlip(selectedIndex);
-    // Notify that the card was selected (and any further processing can occur).
-    onCardSelected(selectedIndex);
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Positioned(
+          left: _animation.value.dx,
+          top: _animation.value.dy,
+          child: widget.child,
+        );
+      },
+    );
   }
 }
