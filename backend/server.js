@@ -319,32 +319,35 @@ io.on('connection', (socket) => {
         }
     });
 
-
     socket.on('distribute_cards', async (data) => {
         const { lobbyCode } = data;
-
+    
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             return;
         }
-
+    
         const deck = shuffleDeck(createDeck());
         totalCardsInDeck = deck.length;
-
-        // ✅ Store deck in lobbies for later use
+    
+        // ✅ Store deck in lobbies
         lobbies[lobbyCode].deck = deck;
-
+    
         const players = lobbies[lobbyCode].players;
+    
+        // ✅ Reinitialize playerHands for new game
+        lobbies[lobbyCode].playerHands = {};
         const cardsDistributed = {};
-
-        // Initialize player hands
+    
+        // Initialize empty hands for all players
         players.forEach(player => {
+            lobbies[lobbyCode].playerHands[player.name] = []; // ✅ Ensure hands are initialized
             cardsDistributed[player.name] = [];
         });
-
+    
         let currentPlayerIndex = 0;
-
-        // Ensure the distribution object is stored globally
+    
+        // Store distribution state globally
         ongoingDistributions[lobbyCode] = {
             currentPlayerIndex,
             players,
@@ -353,45 +356,45 @@ io.on('connection', (socket) => {
             async distributeToPlayer(player) {
                 const playerId = player.id;
                 const playerName = player.name;
-
+    
                 console.log(`📢 Distributing cards to ${playerName}`);
-
-                // Send 3 cards to the player
+    
                 for (let i = 0; i < 3; i++) {
                     const card = this.deck.pop();
                     totalCardsInDeck--;
-
-                    console.log(`🃏 Dealt card '${card}' to ${playerName}`);
+    
+                    // console.log(`🃏 Dealt card '${card}' to ${playerName}`);
                     console.log(`🗃️ Total cards remaining: ${totalCardsInDeck}`);
-
+    
+                    // ✅ Store card in playerHands
+                    lobbies[lobbyCode].playerHands[playerName].push(card);
                     this.cardsDistributed[playerName].push(card);
-
+    
                     // Emit card to player
-                    io.to(lobbyCode).emit('receive_card', {
-                        card: card,
-                        playerName: player.name
-                    });
-
-                    // 🔥 Emit updated card count to ALL clients
+                    io.to(lobbyCode).emit('receive_card', { card, playerName });
+    
+                    // 🔥 Emit updated card count to all clients
                     io.to(lobbyCode).emit('update_card_count', {
                         totalCardsRemaining: totalCardsInDeck
                     });
-
-                    await new Promise(resolve => setTimeout(resolve, 300)); // Delay between cards
+    
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Short delay between cards
                 }
-
-                // Notify player all cards have been sent
+    
+                // Notify player that all cards have been sent
                 io.to(playerId).emit('all_cards_sent', { playerName });
             }
         };
-
+    
         console.log(`🚀 Started card distribution for lobby ${lobbyCode}`);
         console.log(`🎮 Players: ${players.map(p => p.name).join(', ')}`);
-
-        // Start with the first player
+    
+        // Start distributing to the first player
         await ongoingDistributions[lobbyCode].distributeToPlayer(players[currentPlayerIndex]);
+    
+        // ✅ Log all player hands after distribution
+        logCurrentHands(lobbyCode);
     });
-
 
     socket.on('spin_wheel', (data) => {
         const { lobbyCode } = data;
@@ -621,6 +624,7 @@ io.on('connection', (socket) => {
         if (lobby.queenSelections.length === 2) {
             // Broadcast the swap details so all clients can animate the swap
             io.to(lobbyCode).emit('queen_swap', { selections: lobby.queenSelections });
+            logCurrentHands(lobbyCode);
 
             // Reset Queen ability state
             lobby.queenAbilityActive = false;
@@ -645,7 +649,6 @@ io.on('connection', (socket) => {
             }, 1200); // Delay to allow swap animation to complete (adjust as needed)
         }
     });
-
 
     socket.on('jack_ability_complete', (data) => {
         const { lobbyCode, playerName } = data;
@@ -680,7 +683,6 @@ io.on('connection', (socket) => {
             nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
         });
     });
-
 
     socket.on('reset_deck_scale', (data) => {
         const lobbyCode = data.lobbyCode;
@@ -796,48 +798,44 @@ io.on('connection', (socket) => {
 
     socket.on('replace_card', (data) => {
         const { lobbyCode, playerName, replacedCard, newCard, replaceIndex, wasDrawnFromDeck } = data;
-
+    
         if (!lobbies[lobbyCode]) {
             console.log(`❌ Lobby ${lobbyCode} does not exist.`);
             return;
         }
-
+    
         console.log(`🔄 (SERVER) ${playerName} replaced ${replacedCard} with ${newCard} (From Deck: ${wasDrawnFromDeck})`);
-
-        // Add the replaced card to the discard pile
-        if (!lobbies[lobbyCode].discardedCards) {
-            lobbies[lobbyCode].discardedCards = [];
+    
+        // ✅ Ensure `playerHands` exists
+        if (!lobbies[lobbyCode].playerHands) {
+            lobbies[lobbyCode].playerHands = {};
         }
-
-        lobbies[lobbyCode].discardedCards.push({ playerName, card: replacedCard });
-
-        // Broadcast updated discard pile and new turn
-        io.to(lobbyCode).emit('card_discarded', {
-            playerName,
-            card: replacedCard,
-        });
-
-        io.to(lobbyCode).emit('update_replaced_card', {
-            playerName,
-            replaceIndex,
-            newCard,
-            wasDrawnFromDeck, // ✅ Ensure this flag is sent
-        });
-
-        // Move to the next turn
+    
+        // ✅ Ensure player's hand exists
+        if (!lobbies[lobbyCode].playerHands[playerName]) {
+            lobbies[lobbyCode].playerHands[playerName] = [];
+        }
+    
+        // ✅ Update the player's hand
+        if (lobbies[lobbyCode].playerHands[playerName][replaceIndex] !== undefined) {
+            lobbies[lobbyCode].playerHands[playerName][replaceIndex] = newCard;
+        } else {
+            console.log(`⚠️ (SERVER) Invalid replace index: ${replaceIndex} for ${playerName}`);
+        }
+    
+        // ✅ Log updated hands
+        logCurrentHands(lobbyCode);
+    
+        // Move to next turn
         const lobby = lobbies[lobbyCode];
         const turnOrder = lobby.turnOrder || [];
         lobby.turnIndex = (lobby.turnIndex + 1) % turnOrder.length;
         const nextPlayer = turnOrder[lobby.turnIndex];
-
+    
         console.log(`➡️ (SERVER) Next turn: ${nextPlayer}`);
-
-        io.to(lobbyCode).emit('next_turn', {
-            currentPlayer: nextPlayer,
-            nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length],
-        });
+        io.to(lobbyCode).emit('next_turn', { currentPlayer: nextPlayer, nextPlayer: turnOrder[(lobby.turnIndex + 1) % turnOrder.length] });
     });
-
+    
 
     socket.on('flip_card_back', (data) => {
         const { lobbyCode, playerName, replaceIndex, wasDrawnFromDeck } = data;
@@ -876,6 +874,32 @@ io.on('connection', (socket) => {
 
 });
 
+function logCurrentHands(lobbyCode) {
+    if (!lobbies[lobbyCode]) return;
+
+    let handsLog = "{\n";
+
+    lobbies[lobbyCode].players.forEach((player, index) => {
+        const playerName = player.name;
+        const hand = lobbies[lobbyCode].playerHands[playerName] || [];
+
+        // Convert hand into the correct format
+        const formattedHand = hand.map(card => `'${card}'`).join(', ');
+
+        // Append to handsLog
+        handsLog += `  ${playerName}: [ ${formattedHand} ]`;
+
+        // Add comma for all except the last player
+        if (index < lobbies[lobbyCode].players.length - 1) {
+            handsLog += ",";
+        }
+        handsLog += "\n";
+    });
+
+    handsLog += "}";
+
+    console.log(`🃏 Hands summary: ${handsLog}`);
+}
 
 
 // Create a standard 52-card deck
